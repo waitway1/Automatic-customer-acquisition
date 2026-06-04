@@ -244,9 +244,16 @@ input {
 .metricStrip,
 .mailStats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-top: 10px;
+}
+
+.metricStrip {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mailStats {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .metricStrip div,

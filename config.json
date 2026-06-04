@@ -5,12 +5,15 @@
   "anysearch_command": "python C:/Users/Administrator/.codex/skills/anysearch/scripts/anysearch_cli.py",
   "excel_root": "C:/1/Chrome/work/excel",
   "outreach_package": "C:/1/Chrome/portable-product-email-outreach-skill",
-  "sender_profile": "qq_sender",
-  "retry_sender_profile": "",
+  "sender_profile": "artway_sender",
+  "retry_sender_profile": "gmail_sender",
+  "daily_send_profile": "artway_sender",
+  "auto_send_after_daily_collect": true,
   "mail_monitor": {
     "enabled_on_start": true,
     "interval_seconds": 300,
     "lookback_days": 14,
+    "ignore_bounces_before": "",
     "default_folders": [
       "INBOX",
       "Spam",
@@ -26,9 +29,9 @@
   },
   "mail_accounts": [
     {
-      "key": "aliyun_mail",
-      "label": "阿里邮箱",
-      "sender_profile": "aliyun_sender",
+      "key": "artway_mail",
+      "label": "Artway邮箱",
+      "sender_profile": "artway_sender",
       "imap_host": "imaphk.qiye.aliyun.com",
       "imap_port": 993,
       "imap_user": "",

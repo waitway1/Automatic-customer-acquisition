@@ -15,6 +15,7 @@ from copy import copy
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 from html import escape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,6 +30,7 @@ ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 RUNTIME_DIR = ROOT / "runtime"
 CONFIG_PATH = ROOT / "config.json"
+LOCAL_CONFIG_PATH = ROOT / "config.local.json"
 LOG_PATH = RUNTIME_DIR / "events.log"
 TASKS_PATH = RUNTIME_DIR / "tasks.json"
 INTERVENTION_PATH = RUNTIME_DIR / "intervention.json"
@@ -125,7 +127,7 @@ def read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception:
         return default
 
@@ -141,8 +143,19 @@ def append_log(message: str) -> None:
         handle.write(f"[{now_iso()}] {message}\n")
 
 
+def deep_merge(base: Any, override: Any) -> Any:
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = dict(base)
+        for key, value in override.items():
+            merged[key] = deep_merge(merged.get(key), value)
+        return merged
+    return override if override is not None else base
+
+
 def load_config() -> dict[str, Any]:
-    return read_json(CONFIG_PATH, {})
+    config = read_json(CONFIG_PATH, {})
+    local = read_json(LOCAL_CONFIG_PATH, {})
+    return deep_merge(config, local)
 
 
 def normalize(value: Any) -> str:
@@ -236,10 +249,51 @@ def decode_mime_header(value: str | None) -> str:
     result = []
     for part, enc in decode_header(value):
         if isinstance(part, bytes):
-            result.append(part.decode(enc or "utf-8", errors="replace"))
+            charset = (enc or "utf-8").lower()
+            if charset in {"unknown-8bit", "x-unknown", "unknown"}:
+                charset = "utf-8"
+            try:
+                result.append(part.decode(charset, errors="replace"))
+            except LookupError:
+                result.append(part.decode("utf-8", errors="replace"))
         else:
             result.append(part)
     return "".join(result)
+
+
+def parse_local_datetime(value: Any) -> datetime | None:
+    text = normalize(value)
+    if not text:
+        return None
+    for parser in (
+        datetime.fromisoformat,
+        lambda item: datetime.strptime(item, "%Y-%m-%d %H:%M:%S"),
+        lambda item: datetime.strptime(item, "%Y-%m-%d"),
+    ):
+        try:
+            return parser(text)
+        except ValueError:
+            continue
+    return None
+
+
+def message_datetime(msg: email.message.Message) -> datetime | None:
+    raw = msg.get("Date")
+    if not raw:
+        return None
+    try:
+        parsed = parsedate_to_datetime(raw)
+    except Exception:
+        return None
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
+
+
+def should_ignore_bounce(config: dict[str, Any], msg: email.message.Message) -> bool:
+    ignore_before = parse_local_datetime(config.get("mail_monitor", {}).get("ignore_bounces_before"))
+    msg_time = message_datetime(msg)
+    return bool(ignore_before and msg_time and msg_time < ignore_before)
 
 
 def model_workbook_path(config: dict[str, Any], model_key: str) -> Path:
@@ -416,6 +470,7 @@ def resolve_mail_account(config: dict[str, Any], account: dict[str, Any]) -> dic
 def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
     saved = read_json(MAIL_STATUS_PATH, {})
     statuses = []
+    monitor_running = MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()
     for account in config.get("mail_accounts", []):
         resolved = resolve_mail_account(config, account)
         item = {
@@ -430,7 +485,15 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
             "folders": [],
             "error": "",
         }
-        item.update(saved.get(resolved["key"], {}))
+        cached = saved.get(resolved["key"], {})
+        item.update(cached)
+        item["label"] = resolved["label"]
+        item["user"] = resolved["imap_user"]
+        if item.get("status") == "未配置" and resolved["imap_host"] and resolved["imap_user"] and resolved["imap_password"] and resolved["imap_password"] != "replace-me":
+            item["status"] = "等待检查"
+            item["error"] = ""
+        if monitor_running and item.get("status") == "等待检查" and not item.get("last_checked"):
+            item["status"] = "检查中"
         statuses.append(item)
     return statuses
 
@@ -554,14 +617,22 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
             existing_domains.add(domain)
             existing_domains.add(main_domain(lead["email"]))
             append_log(f"{model['label']} 新客户 {len(found)}/{target_count}: {lead['company']} {lead['email']}")
-    written = append_leads(config, model_key, found)
+    write_result = append_leads(config, model_key, found)
+    written = write_result["count"]
     append_log(f"完成获客: {model['label']} 写入 {written}/{target_count}")
-    return {"model": model_key, "label": model["label"], "found": len(found), "written": written, "leads": found}
+    return {
+        "model": model_key,
+        "label": model["label"],
+        "found": len(found),
+        "written": write_result["count"],
+        "written_emails": write_result["emails"],
+        "leads": found,
+    }
 
 
-def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, str]]) -> int:
+def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, str]]) -> dict[str, Any]:
     if not leads:
-        return 0
+        return {"count": 0, "emails": []}
     path, workbook, sheet, headers, mapping = open_model_sheet(config, model_key, data_only=False)
     try:
         if not mapping.get("email"):
@@ -581,6 +652,7 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
             if website_value:
                 existing_domains.add(main_domain(website_value))
         written = 0
+        written_emails: list[str] = []
         for lead in leads:
             email_value = lead["email"].lower()
             website_domain = main_domain(lead["website"])
@@ -599,8 +671,9 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
             existing_domains.add(website_domain)
             existing_domains.add(email_domain)
             written += 1
+            written_emails.append(email_value)
         workbook.save(path)
-        return written
+        return {"count": written, "emails": written_emails}
     finally:
         workbook.close()
 
@@ -608,8 +681,18 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
 def daily_collect(limit_per_model: int) -> dict[str, Any]:
     config = load_config()
     results = []
+    auto_send = bool(config.get("auto_send_after_daily_collect", True))
+    daily_sender = normalize(config.get("daily_send_profile")) or normalize(config.get("sender_profile"))
     for key in config.get("models", {}):
-        results.append(collect_for_model(config, key, limit_per_model))
+        result = collect_for_model(config, key, limit_per_model)
+        result["auto_sent"] = []
+        if auto_send:
+            for email_value in result.get("written_emails", []):
+                try:
+                    result["auto_sent"].append(send_target_email_for_model(key, email_value, daily_sender))
+                except Exception as exc:
+                    result.setdefault("auto_send_failed", []).append({"email": email_value, "error": str(exc)})
+        results.append(result)
     return {"daily_limit": limit_per_model, "results": results}
 
 
@@ -734,11 +817,11 @@ def send_for_model(model_key: str, limit: int, sender_profile: str | None = None
     return {"model": model_key, "label": model["label"], "limit": limit, "sender": sender_profile or config.get("sender_profile"), "returncode": proc.returncode}
 
 
-def send_target_email_for_model(model_key: str, target_email: str) -> dict[str, Any]:
+def send_target_email_for_model(model_key: str, target_email: str, sender_profile: str | None = None) -> dict[str, Any]:
     config = load_config()
     model = config["models"][model_key]
     package = Path(config["outreach_package"])
-    retry_profile = normalize(config.get("retry_sender_profile")) or config.get("sender_profile", "qq_sender")
+    retry_profile = sender_profile or normalize(config.get("retry_sender_profile")) or config.get("sender_profile", "qq_sender")
     cfg_path = ensure_outreach_config(config, model_key, retry_profile)
     python_exe = config.get("python", "python")
     script = package / "scripts" / "send_portable_campaign.py"
@@ -962,6 +1045,8 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
     text = message_text(msg)
     lower = f"{subject}\n{from_addr}\n{text}".lower()
     if any(token.lower() in lower for token in config.get("bounce_keywords", [])):
+        if should_ignore_bounce(config, msg):
+            return 0, 0
         emails = [value.lower() for value in EMAIL_RE.findall(text) if is_valid_email(value)]
         for bounced in dict.fromkeys(emails):
             model_key = find_model_for_email(config, bounced)
@@ -1032,7 +1117,7 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
         status["status"] = "正常"
     except Exception as exc:
         status["status"] = "异常"
-        status["error"] = str(exc)
+        status["error"] = str(exc)[:300]
     return status
 
 

@@ -76,8 +76,8 @@ function renderModels(models) {
         <strong>${model.count || 0}</strong>
       </div>
       <div class="metricStrip">
-        <div><span>未发</span><strong>${model.unsent || 0}</strong></div>
         <div><span>已发</span><strong>${model.sent || 0}</strong></div>
+        <div><span>未发</span><strong>${model.unsent || 0}</strong></div>
         <div><span>失效</span><strong>${model.invalid || 0}</strong></div>
       </div>
       <p class="subtle">${model.last_updated ? `更新时间 ${model.last_updated}` : ""}</p>
@@ -112,8 +112,7 @@ function renderMailAccounts(accounts) {
       </div>
       <p class="mailUser">${account.user || "未填写账号"}</p>
       <div class="mailStats">
-        <div><span>检查</span><strong>${account.checked || 0}</strong></div>
-        <div><span>退信</span><strong>${account.bounces || 0}</strong></div>
+        <div><span>新邮件</span><strong>${account.checked || 0}</strong></div>
         <div><span>意向</span><strong>${account.interested || 0}</strong></div>
       </div>
       <p class="subtle">${account.last_checked ? `最近检查 ${account.last_checked}` : "等待后台检查"}</p>

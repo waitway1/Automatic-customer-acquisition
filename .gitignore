@@ -3,5 +3,6 @@ __pycache__/
 runtime/
 work/
 .env
+config.local.json
 *.log
 *.pid
