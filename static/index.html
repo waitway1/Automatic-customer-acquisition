@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>客户增长控制台</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>客户增长控制台</h1>
+        <p id="clock">正在读取...</p>
+      </div>
+      <div class="actions">
+        <button id="refreshBtn" class="iconButton" title="刷新">↻</button>
+        <button id="mailBtn" class="secondary">启动邮件监控</button>
+        <button id="pollBtn" class="secondary">立即检查邮件</button>
+        <button id="dailyBtn">每日获客</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summaryBand">
+        <div>
+          <span>客户总数</span>
+          <strong id="totalCount">0</strong>
+        </div>
+        <div>
+          <span>未发送</span>
+          <strong id="unsentCount">0</strong>
+        </div>
+        <div>
+          <span>失效邮箱</span>
+          <strong id="invalidCount">0</strong>
+        </div>
+        <div>
+          <span>待我介入</span>
+          <strong id="interventionCount">0</strong>
+        </div>
+      </section>
+
+      <section class="controls">
+        <div class="controlGroup">
+          <label for="modelSelect">车型</label>
+          <select id="modelSelect"></select>
+        </div>
+        <div class="controlGroup">
+          <label for="sendLimit">发送数量</label>
+          <input id="sendLimit" type="number" min="1" max="500" value="10">
+        </div>
+        <button id="sendBtn">发送邮件</button>
+      </section>
+
+      <section>
+        <div class="sectionHeader">
+          <h2>五个类别</h2>
+          <span id="taskState">空闲</span>
+        </div>
+        <div id="modelGrid" class="grid"></div>
+      </section>
+
+      <section class="twoColumn">
+        <div>
+          <div class="sectionHeader">
+            <h2>需要我介入</h2>
+            <span>客户感兴趣后进入这里</span>
+          </div>
+          <div id="interventionList" class="list"></div>
+        </div>
+        <div>
+          <div class="sectionHeader">
+            <h2>运行日志</h2>
+            <span>最近 120 条</span>
+          </div>
+          <pre id="logs" class="logs"></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

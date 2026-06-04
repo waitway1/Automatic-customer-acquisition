@@ -1,0 +1,990 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import email
+import imaplib
+import json
+import base64
+import os
+import re
+import shutil
+import subprocess
+import threading
+import time
+from copy import copy
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from email.header import decode_header
+from html import escape
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from socketserver import ThreadingMixIn
+from typing import Any
+from urllib.parse import urlparse
+
+from openpyxl import load_workbook
+
+
+ROOT = Path(__file__).resolve().parent
+STATIC_DIR = ROOT / "static"
+RUNTIME_DIR = ROOT / "runtime"
+CONFIG_PATH = ROOT / "config.json"
+LOG_PATH = RUNTIME_DIR / "events.log"
+TASKS_PATH = RUNTIME_DIR / "tasks.json"
+INTERVENTION_PATH = RUNTIME_DIR / "intervention.json"
+BOUNCE_STATE_PATH = RUNTIME_DIR / "bounce_state.json"
+GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
+ASSET_DIR = ROOT / "work" / "assets"
+
+EMAIL_RE = re.compile(r"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}", re.I)
+URL_RE = re.compile(r"https?://[^\s<>)\"']+", re.I)
+ACCESSORY_TERMS = (
+    "accessory",
+    "accessories",
+    "parts",
+    "shop",
+    "store",
+    "4x4",
+    "offroad",
+    "off-road",
+    "aftermarket",
+    "upgrade",
+    "body kit",
+    "side step",
+    "roof rack",
+    "fender",
+    "canopy",
+    "tonneau",
+    "bumper",
+    "bull bar",
+    "grille",
+)
+BAD_EMAIL_PREFIXES = (
+    "noreply@",
+    "no-reply@",
+    "donotreply@",
+    "mailer-daemon@",
+    "webmaster@",
+    "postmaster@",
+    "hostmaster@",
+)
+BAD_HOSTS = {
+    "youtube.com",
+    "facebook.com",
+    "instagram.com",
+    "amazon.com",
+    "alibaba.com",
+    "aliexpress.com",
+    "ebay.com",
+    "reddit.com",
+    "walmart.com",
+    "etsy.com",
+    "google.com",
+}
+COUNTRY_BY_SUFFIX = {
+    ".com.au": "澳大利亚",
+    ".au": "澳大利亚",
+    ".co.nz": "新西兰",
+    ".nz": "新西兰",
+    ".co.za": "南非",
+    ".za": "南非",
+    ".com.br": "巴西",
+    ".br": "巴西",
+    ".com.mx": "墨西哥",
+    ".mx": "墨西哥",
+    ".co.uk": "英国",
+    ".uk": "英国",
+    ".de": "德国",
+    ".fr": "法国",
+    ".it": "意大利",
+    ".es": "西班牙",
+    ".nl": "荷兰",
+    ".pl": "波兰",
+    ".th": "泰国",
+    ".ph": "菲律宾",
+    ".pk": "巴基斯坦",
+    ".ae": "阿联酋",
+    ".tr": "土耳其",
+    ".ru": "俄罗斯",
+    ".za": "南非",
+    ".com": "",
+}
+
+TASK_LOCK = threading.Lock()
+CURRENT_TASK: dict[str, Any] | None = None
+MAIL_MONITOR_THREAD: threading.Thread | None = None
+MAIL_MONITOR_STOP = threading.Event()
+
+
+def now_iso() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def read_json(path: Path, default: Any) -> Any:
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_log(message: str) -> None:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    with LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(f"[{now_iso()}] {message}\n")
+
+
+def load_config() -> dict[str, Any]:
+    return read_json(CONFIG_PATH, {})
+
+
+def normalize(value: Any) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip())
+
+
+def compact(value: Any) -> str:
+    return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", normalize(value).lower())
+
+
+def host_from_url(url: str) -> str:
+    text = normalize(url)
+    if not text:
+        return ""
+    if "://" not in text:
+        text = "https://" + text
+    try:
+        host = urlparse(text).netloc.lower()
+    except Exception:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host.split(":")[0]
+
+
+def main_domain(value: str) -> str:
+    host = host_from_url(value) or normalize(value).lower()
+    if "@" in host:
+        host = host.rsplit("@", 1)[1]
+    parts = [part for part in host.split(".") if part]
+    if len(parts) <= 2:
+        return host
+    suffix2 = ".".join(parts[-2:])
+    suffix3 = ".".join(parts[-3:])
+    if suffix2 in {"co.uk", "com.au", "co.nz", "co.za", "com.br", "com.mx", "com.cn", "com.hk", "com.tw"}:
+        return suffix3
+    return ".".join(parts[-2:])
+
+
+def infer_country(url: str, text: str = "") -> str:
+    host = host_from_url(url)
+    for suffix, country in sorted(COUNTRY_BY_SUFFIX.items(), key=lambda item: len(item[0]), reverse=True):
+        if host.endswith(suffix):
+            return country
+    merged = f"{url} {text}".lower()
+    hints = [
+        ("australia", "澳大利亚"),
+        ("new zealand", "新西兰"),
+        ("south africa", "南非"),
+        ("united kingdom", "英国"),
+        ("germany", "德国"),
+        ("france", "法国"),
+        ("italy", "意大利"),
+        ("spain", "西班牙"),
+        ("thailand", "泰国"),
+        ("philippines", "菲律宾"),
+        ("brazil", "巴西"),
+        ("mexico", "墨西哥"),
+        ("uae", "阿联酋"),
+        ("dubai", "阿联酋"),
+    ]
+    for token, country in hints:
+        if token in merged:
+            return country
+    return ""
+
+
+def is_valid_email(candidate: str) -> bool:
+    value = candidate.strip().strip(".,;:()[]<>").lower()
+    if not EMAIL_RE.fullmatch(value):
+        return False
+    if value.startswith(BAD_EMAIL_PREFIXES):
+        return False
+    local, domain = value.split("@", 1)
+    if len(local) < 2 or len(local) > 64 or len(value) > 254:
+        return False
+    if local.isdigit():
+        return False
+    if local in {"example", "test", "user"} or domain in {"example.com", "test.com", "localhost"}:
+        return False
+    if domain.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
+        return False
+    return True
+
+
+def decode_mime_header(value: str | None) -> str:
+    if not value:
+        return ""
+    result = []
+    for part, enc in decode_header(value):
+        if isinstance(part, bytes):
+            result.append(part.decode(enc or "utf-8", errors="replace"))
+        else:
+            result.append(part)
+    return "".join(result)
+
+
+def model_workbook_path(config: dict[str, Any], model_key: str) -> Path:
+    model = config["models"][model_key]
+    folder = Path(config["excel_root"]) / model["folder"]
+    configured = model.get("workbook", "")
+    direct = folder / configured if configured else Path("")
+    if configured and direct.exists():
+        return direct
+    candidates = [
+        path
+        for path in folder.glob("*.xlsx")
+        if not path.name.lower().endswith((".bak.xlsx",)) and ".bak-" not in path.name.lower()
+    ]
+    if not candidates:
+        return direct
+    if configured:
+        stem = Path(configured).stem.lower()
+        for path in candidates:
+            if path.stem.lower() == stem:
+                return path
+    return sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True)[0]
+
+
+def headers_for_sheet(sheet: Any) -> list[Any]:
+    return [sheet.cell(1, col).value for col in range(1, sheet.max_column + 1)]
+
+
+def header_index(headers: list[Any], names: list[str]) -> int | None:
+    normalized = [compact(value) for value in headers]
+    wanted = [compact(value) for value in names if value]
+    for index, header in enumerate(normalized):
+        if header and header in wanted:
+            return index + 1
+    for index, header in enumerate(normalized):
+        if header and any(want and want in header for want in wanted):
+            return index + 1
+    return None
+
+
+def open_model_sheet(config: dict[str, Any], model_key: str, data_only: bool = False) -> tuple[Path, Any, Any, list[Any], dict[str, int]]:
+    model = config["models"][model_key]
+    path = model_workbook_path(config, model_key)
+    workbook = load_workbook(path, data_only=data_only)
+    sheet_name = model.get("sheet", "Sheet1")
+    sheet = workbook[sheet_name] if sheet_name in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+    headers = headers_for_sheet(sheet)
+    mapping = {
+        "email": header_index(headers, [model.get("email_header", ""), "客户邮箱", "邮箱", "email", "mail"]),
+        "company": header_index(headers, [model.get("company_header", ""), "客户名", "客户", "公司", "company", "name"]),
+        "country": header_index(headers, [model.get("country_header", ""), "客户国家", "国家", "country"]),
+        "website": header_index(headers, [model.get("website_header", ""), "客户网址", "网址", "网站", "website", "url"]),
+        "first_time": header_index(headers, [model.get("first_time_header", ""), "一次跟进时间", "first sent"]),
+    }
+    return path, workbook, sheet, headers, {k: v for k, v in mapping.items() if v}
+
+
+def read_model_rows(config: dict[str, Any], model_key: str) -> list[dict[str, Any]]:
+    path, workbook, sheet, _headers, mapping = open_model_sheet(config, model_key, data_only=True)
+    rows = []
+    try:
+        email_col = mapping.get("email")
+        if not email_col:
+            return []
+        for row_number in range(2, sheet.max_row + 1):
+            email_value = normalize(sheet.cell(row_number, email_col).value)
+            if not email_value:
+                continue
+            row = {
+                "row": row_number,
+                "email": email_value,
+                "company": normalize(sheet.cell(row_number, mapping.get("company", 0)).value) if mapping.get("company") else "",
+                "country": normalize(sheet.cell(row_number, mapping.get("country", 0)).value) if mapping.get("country") else "",
+                "website": normalize(sheet.cell(row_number, mapping.get("website", 0)).value) if mapping.get("website") else "",
+                "first_time": normalize(sheet.cell(row_number, mapping.get("first_time", 0)).value) if mapping.get("first_time") else "",
+            }
+            rows.append(row)
+    finally:
+        workbook.close()
+    return rows
+
+
+def count_invalid_sheet(config: dict[str, Any], model_key: str) -> int:
+    model = config["models"][model_key]
+    path = model_workbook_path(config, model_key)
+    if not path.exists():
+        return 0
+    workbook = load_workbook(path, data_only=True, read_only=True)
+    try:
+        name = model.get("invalid_sheet", "邮箱失效")
+        if name not in workbook.sheetnames:
+            return 0
+        sheet = workbook[name]
+        return max(0, sheet.max_row - 1)
+    finally:
+        workbook.close()
+
+
+def dashboard_status() -> dict[str, Any]:
+    config = load_config()
+    models = []
+    for key, model in config.get("models", {}).items():
+        try:
+            rows = read_model_rows(config, key)
+            sent = sum(1 for row in rows if row.get("first_time"))
+            models.append(
+                {
+                    "key": key,
+                    "label": model["label"],
+                    "workbook": str(model_workbook_path(config, key)),
+                    "count": len(rows),
+                    "sent": sent,
+                    "unsent": len(rows) - sent,
+                    "invalid": count_invalid_sheet(config, key),
+                    "last_updated": datetime.fromtimestamp(model_workbook_path(config, key).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    if model_workbook_path(config, key).exists()
+                    else "",
+                }
+            )
+        except Exception as exc:
+            models.append({"key": key, "label": model.get("label", key), "error": str(exc), "count": 0, "sent": 0, "unsent": 0, "invalid": 0})
+    return {
+        "now": now_iso(),
+        "models": models,
+        "task": CURRENT_TASK,
+        "intervention": read_json(INTERVENTION_PATH, []),
+        "mail_monitor": {"running": MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()},
+        "recent_logs": tail_lines(LOG_PATH, 120),
+    }
+
+
+def tail_lines(path: Path, limit: int) -> list[str]:
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return lines[-limit:]
+
+
+def anysearch_cmd(config: dict[str, Any]) -> list[str]:
+    raw = config.get("anysearch_command", "")
+    if not raw:
+        return []
+    if raw.lower().startswith("python "):
+        return ["python"] + raw.split(" ", 1)[1].split()
+    return raw.split()
+
+
+def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) -> str:
+    cmd = anysearch_cmd(config) + args
+    if not cmd:
+        return ""
+    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    if proc.returncode != 0:
+        append_log(f"AnySearch failed: {' '.join(args)} :: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def parse_search_results(output: str) -> list[str]:
+    urls = []
+    for line in output.splitlines():
+        if "**URL**:" in line:
+            url = line.split("**URL**:", 1)[1].strip()
+            urls.append(url)
+    urls.extend(URL_RE.findall(output))
+    clean = []
+    for url in urls:
+        url = url.rstrip(".,)")
+        host = host_from_url(url)
+        if not host:
+            continue
+        if host in BAD_HOSTS or any(host.endswith("." + bad) for bad in BAD_HOSTS):
+            continue
+        if url not in clean:
+            clean.append(url)
+    return clean
+
+
+def extract_page(config: dict[str, Any], url: str) -> str:
+    output = run_anysearch(config, ["extract", url], timeout=80)
+    return output[:120000]
+
+
+def candidate_company_from_text(url: str, text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip(" #*-")
+        if 3 <= len(stripped) <= 80 and not stripped.lower().startswith(("url", "http", "##")):
+            return stripped
+    host = host_from_url(url)
+    return host.split(".")[0].replace("-", " ").title() if host else "Unknown"
+
+
+def page_qualifies(model: dict[str, Any], url: str, text: str) -> bool:
+    merged = f"{url} {text}".lower()
+    vehicle_terms = [term.lower() for term in model.get("vehicle_terms", [])]
+    has_vehicle = any(term in merged for term in vehicle_terms)
+    has_accessory = any(term in merged for term in ACCESSORY_TERMS)
+    return has_vehicle and has_accessory
+
+
+def build_dedupe_sets(config: dict[str, Any], model_key: str) -> tuple[set[str], set[str]]:
+    rows = read_model_rows(config, model_key)
+    emails = {row["email"].strip().lower() for row in rows if row.get("email")}
+    domains = {main_domain(row["website"]) for row in rows if row.get("website")}
+    domains |= {main_domain(row["email"]) for row in rows if row.get("email")}
+    domains.discard("")
+    return emails, domains
+
+
+def collect_for_model(config: dict[str, Any], model_key: str, target_count: int) -> dict[str, Any]:
+    model = config["models"][model_key]
+    append_log(f"开始获客: {model['label']} 目标 {target_count}")
+    existing_emails, existing_domains = build_dedupe_sets(config, model_key)
+    found: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    queries = model.get("search_queries", [])[:]
+    for query_text in queries:
+        if len(found) >= target_count:
+            break
+        output = run_anysearch(config, ["search", query_text, "--max_results", "8"], timeout=80)
+        for url in parse_search_results(output):
+            if len(found) >= target_count:
+                break
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            domain = main_domain(url)
+            if domain in existing_domains:
+                continue
+            text = extract_page(config, url)
+            if not page_qualifies(model, url, text):
+                continue
+            emails = [email_value.lower() for email_value in EMAIL_RE.findall(text) if is_valid_email(email_value)]
+            unique_emails = []
+            for email_value in emails:
+                email_domain = main_domain(email_value)
+                if email_value in existing_emails or email_domain in existing_domains:
+                    continue
+                if email_value not in unique_emails:
+                    unique_emails.append(email_value)
+            if not unique_emails:
+                continue
+            country = infer_country(url, text)
+            if country and country in set(model.get("exclude_countries", [])):
+                append_log(f"跳过 {model['label']} {url}: 排除国家 {country}")
+                continue
+            lead = {
+                "company": candidate_company_from_text(url, text),
+                "country": country,
+                "email": unique_emails[0],
+                "website": url,
+                "evidence": url,
+            }
+            found.append(lead)
+            existing_emails.add(lead["email"])
+            existing_domains.add(domain)
+            existing_domains.add(main_domain(lead["email"]))
+            append_log(f"{model['label']} 新客户 {len(found)}/{target_count}: {lead['company']} {lead['email']}")
+    written = append_leads(config, model_key, found)
+    append_log(f"完成获客: {model['label']} 写入 {written}/{target_count}")
+    return {"model": model_key, "label": model["label"], "found": len(found), "written": written, "leads": found}
+
+
+def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, str]]) -> int:
+    if not leads:
+        return 0
+    path, workbook, sheet, headers, mapping = open_model_sheet(config, model_key, data_only=False)
+    try:
+        if not mapping.get("email"):
+            raise RuntimeError("找不到邮箱列")
+        backup = path.with_name(f"{path.stem}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}{path.suffix}")
+        shutil.copy2(path, backup)
+        existing_emails = set()
+        existing_domains = set()
+        email_col = mapping.get("email")
+        website_col = mapping.get("website")
+        for row_number in range(2, sheet.max_row + 1):
+            email_value = normalize(sheet.cell(row_number, email_col).value).lower()
+            website_value = normalize(sheet.cell(row_number, website_col).value) if website_col else ""
+            if email_value:
+                existing_emails.add(email_value)
+                existing_domains.add(main_domain(email_value))
+            if website_value:
+                existing_domains.add(main_domain(website_value))
+        written = 0
+        for lead in leads:
+            email_value = lead["email"].lower()
+            website_domain = main_domain(lead["website"])
+            email_domain = main_domain(email_value)
+            if email_value in existing_emails or website_domain in existing_domains or email_domain in existing_domains:
+                continue
+            row = sheet.max_row + 1
+            if mapping.get("company"):
+                sheet.cell(row, mapping["company"]).value = lead["company"]
+            if mapping.get("country"):
+                sheet.cell(row, mapping["country"]).value = lead["country"]
+            sheet.cell(row, mapping["email"]).value = lead["email"]
+            if mapping.get("website"):
+                sheet.cell(row, mapping["website"]).value = lead["website"]
+            existing_emails.add(email_value)
+            existing_domains.add(website_domain)
+            existing_domains.add(email_domain)
+            written += 1
+        workbook.save(path)
+        return written
+    finally:
+        workbook.close()
+
+
+def daily_collect(limit_per_model: int) -> dict[str, Any]:
+    config = load_config()
+    results = []
+    for key in config.get("models", {}):
+        results.append(collect_for_model(config, key, limit_per_model))
+    return {"daily_limit": limit_per_model, "results": results}
+
+
+def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profile: str | None = None) -> Path:
+    model = config["models"][model_key]
+    GENERATED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    package = Path(config["outreach_package"])
+    logo_file = ensure_fallback_logo()
+    cfg = {
+        "campaign": {
+            "name": f"{model_key}_first_touch",
+            "mode": "first_touch_only",
+            "sheet_name": model.get("sheet", "Sheet1"),
+            "delay_min_seconds": 15,
+            "delay_max_seconds": 30,
+            "invalid_sheet_name": model.get("invalid_sheet", "邮箱失效"),
+            "state_label": f"{model_key}_first_touch",
+            "allow_create_tracking_column": False,
+        },
+        "workbook": {"path": str(model_workbook_path(config, model_key)).replace("\\", "/")},
+        "sender": {
+            "profiles_path": str(package / "sender_profiles.local.json").replace("\\", "/"),
+            "profile": sender_profile or config.get("sender_profile", "qq_sender"),
+        },
+        "tracking": {
+            "first_time_header": model.get("first_time_header", "一次跟进时间"),
+            "first_reply_header": "一次跟进回复",
+        },
+        "field_aliases": {
+            "company": [model.get("company_header", "")],
+            "country": [model.get("country_header", "")],
+            "email": [model.get("email_header", "")],
+            "website": [model.get("website_header", "")],
+            "first_time": [model.get("first_time_header", "")],
+        },
+        "templates": {
+            "shell_path": str(package / "templates" / "email_shell.html").replace("\\", "/"),
+            "signature_path": str(package / "templates" / "company_signature.html").replace("\\", "/"),
+            "variables_path": str(package / "templates" / "variables.json").replace("\\", "/"),
+        },
+        "assets": {
+            "logo_path": str(logo_file).replace("\\", "/"),
+            "first_images": [],
+        },
+        "message": {
+            "product_label": model.get("message", {}).get("product_label", model["label"] + " accessories"),
+            "product_items": model.get("message", {}).get("product_items", ["accessories"]),
+            "price_hint": "",
+            "company_line_enabled": False,
+        },
+    }
+    variables = read_json(package / "templates" / "variables.json", {})
+    logo_path = variables.get("logoPath") or variables.get("logo_path") or ""
+    if logo_path:
+        candidate = Path(logo_path)
+        if not candidate.is_absolute():
+            candidate = package / "templates" / logo_path
+        if candidate.exists():
+            cfg["assets"]["logo_path"] = str(candidate).replace("\\", "/")
+    cfg_path = GENERATED_CONFIG_DIR / f"{model_key}.json"
+    write_json(cfg_path, cfg)
+    return cfg_path
+
+
+def ensure_fallback_logo() -> Path:
+    ASSET_DIR.mkdir(parents=True, exist_ok=True)
+    logo = ASSET_DIR / "fallback-logo.png"
+    if not logo.exists():
+        logo.write_bytes(
+            base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAByElEQVR4nO2aQU7DMBBF/9qBKoS4Qq6QK+QK3AEXoAogIs4Ayx5mpjHEm6YdS5P4nEiyHmxJYsdzHccxAAAAAAAAAAB8bO3s7m3sQH6GIo4jEwB7d3f3V7fb7X1x0f0OmW2sFcBv2w3AM4DnPiV5PxZlWQO8xXEcR3Z2dt4A3B3gk8lk/wDgbkKSJJvNZr8C8NwABsC+7+9vT0/PewH4C7C+Xq/fB+CuAK/X6/39/T0B3BXg6XS6v7+/p4C7AhydTnd3d/cEcEeA3+93e3t7O4A7AhwcHNze3t4G4A7A5XK5sbGxA7gjwMHBwcHBwQ7gjgD7+/s7OzsbwB0Bbm5uLi4uBvBAgMfHx0dHRwN4IsD29vbW1tYG8FCA1dXV9fX1AfAQgNPp9P7+/gDwUIDV1dUVFRUB8BCA9vb2+vr6APBQgKmpqampqQDwUICqqqqgoKAA8FCAjY2Njo6OAPBQgNfX1+vr6wDwUICrq6u3t7cA8FCAiYkJf39/AHhZgH6/39vb24C8K8D7/e7u7m4A8E6A8/nc3d0dAN4J8PLy8u7u7gDwPoC7u7tHR0cDeCZAZ2dnY2NjAHgmQHNzc2NjYwN4JkBPT0+Li4sD8AwAAAAAAAAAALyODxvNFj+aw+p5AAAAAElFTkSuQmCC"
+            )
+        )
+    return logo
+
+
+def send_for_model(model_key: str, limit: int) -> dict[str, Any]:
+    config = load_config()
+    model = config["models"][model_key]
+    package = Path(config["outreach_package"])
+    cfg_path = ensure_outreach_config(config, model_key)
+    python_exe = config.get("python", "python")
+    script = package / "scripts" / "send_portable_campaign.py"
+    cmd = [python_exe, str(script), "--config", str(cfg_path), "--limit", str(limit)]
+    append_log(f"开始发送: {model['label']} limit={limit}")
+    proc = subprocess.run(cmd, cwd=str(package / "scripts"), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if proc.stdout:
+        append_log(proc.stdout.strip()[-3000:])
+    if proc.stderr:
+        append_log("发送脚本错误输出: " + proc.stderr.strip()[-3000:])
+    if proc.returncode != 0:
+        raise RuntimeError(f"发送失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
+    append_log(f"完成发送: {model['label']} limit={limit}")
+    return {"model": model_key, "label": model["label"], "limit": limit, "returncode": proc.returncode}
+
+
+def send_target_email_for_model(model_key: str, target_email: str) -> dict[str, Any]:
+    config = load_config()
+    model = config["models"][model_key]
+    package = Path(config["outreach_package"])
+    retry_profile = normalize(config.get("retry_sender_profile")) or config.get("sender_profile", "qq_sender")
+    cfg_path = ensure_outreach_config(config, model_key, retry_profile)
+    python_exe = config.get("python", "python")
+    script = package / "scripts" / "send_portable_campaign.py"
+    cmd = [
+        python_exe,
+        str(script),
+        "--config",
+        str(cfg_path),
+        "--limit",
+        "1",
+        "--target-emails",
+        target_email,
+        "--force-targets",
+    ]
+    append_log(f"退信重发: {model['label']} {target_email} sender={retry_profile}")
+    proc = subprocess.run(cmd, cwd=str(package / "scripts"), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if proc.stdout:
+        append_log(proc.stdout.strip()[-3000:])
+    if proc.stderr:
+        append_log("退信重发错误输出: " + proc.stderr.strip()[-3000:])
+    if proc.returncode != 0:
+        raise RuntimeError(f"退信重发失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
+    return {"model": model_key, "label": model["label"], "email": target_email, "returncode": proc.returncode}
+
+
+def copy_row_to_invalid(workbook: Any, sheet: Any, row_number: int, invalid_name: str, label: str) -> None:
+    if invalid_name in workbook.sheetnames:
+        invalid_sheet = workbook[invalid_name]
+    else:
+        invalid_sheet = workbook.create_sheet(invalid_name)
+        for col in range(1, sheet.max_column + 1):
+            source = sheet.cell(1, col)
+            target = invalid_sheet.cell(1, col, source.value)
+            if source.has_style:
+                target._style = copy(source._style)
+            target.number_format = source.number_format
+        invalid_sheet.cell(1, sheet.max_column + 1).value = "标签"
+        for letter, dim in sheet.column_dimensions.items():
+            invalid_sheet.column_dimensions[letter].width = dim.width
+    dest = invalid_sheet.max_row + 1
+    for col in range(1, sheet.max_column + 1):
+        source = sheet.cell(row_number, col)
+        target = invalid_sheet.cell(dest, col, source.value)
+        if source.has_style:
+            target._style = copy(source._style)
+        target.number_format = source.number_format
+    invalid_sheet.cell(dest, sheet.max_column + 1).value = label
+
+
+def move_invalid_email(config: dict[str, Any], model_key: str, email_value: str, label: str = "退信") -> bool:
+    model = config["models"][model_key]
+    path, workbook, sheet, _headers, mapping = open_model_sheet(config, model_key, data_only=False)
+    moved = False
+    try:
+        email_col = mapping.get("email")
+        if not email_col:
+            return False
+        for row_number in range(sheet.max_row, 1, -1):
+            value = normalize(sheet.cell(row_number, email_col).value).lower()
+            if value == email_value.lower():
+                copy_row_to_invalid(workbook, sheet, row_number, model.get("invalid_sheet", "邮箱失效"), label)
+                sheet.delete_rows(row_number, 1)
+                moved = True
+        if moved:
+            workbook.save(path)
+            append_log(f"已移入失效邮箱: {model['label']} {email_value}")
+        return moved
+    finally:
+        workbook.close()
+
+
+def find_model_for_email(config: dict[str, Any], email_value: str) -> str | None:
+    target = email_value.lower()
+    for key in config.get("models", {}):
+        if any(row.get("email", "").lower() == target for row in read_model_rows(config, key)):
+            return key
+    return None
+
+
+def find_unsent_alternative(config: dict[str, Any], model_key: str, exclude_email: str) -> str | None:
+    for row in read_model_rows(config, model_key):
+        if row.get("email", "").lower() == exclude_email.lower():
+            continue
+        if not row.get("first_time"):
+            return row.get("email")
+    return None
+
+
+def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: str) -> dict[str, Any]:
+    state = read_json(BOUNCE_STATE_PATH, {})
+    key = bounced_email.lower()
+    if state.get(key, {}).get("retried"):
+        moved = move_invalid_email(config, model_key, bounced_email, "退信二次失败")
+        state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso()}
+        write_json(BOUNCE_STATE_PATH, state)
+        return {"action": "moved_invalid", "moved": moved}
+    send_result = send_target_email_for_model(model_key, bounced_email)
+    state[key] = {"retried": True, "failed_final": False, "updated_at": now_iso()}
+    write_json(BOUNCE_STATE_PATH, state)
+    return {"action": "retried_once", "send_result": send_result}
+
+
+def message_text(msg: email.message.Message) -> str:
+    parts = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            if ctype not in {"text/plain", "text/html"}:
+                continue
+            payload = part.get_payload(decode=True)
+            if payload:
+                parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            parts.append(payload.decode(msg.get_content_charset() or "utf-8", errors="replace"))
+    return "\n".join(parts)
+
+
+def add_intervention(item: dict[str, Any]) -> None:
+    items = read_json(INTERVENTION_PATH, [])
+    signature = (item.get("from", ""), item.get("subject", ""), item.get("email", ""))
+    for existing in items:
+        if (existing.get("from", ""), existing.get("subject", ""), existing.get("email", "")) == signature:
+            return
+    items.insert(0, item)
+    write_json(INTERVENTION_PATH, items[:300])
+
+
+def poll_mail_once() -> dict[str, Any]:
+    config = load_config()
+    mail_cfg = config.get("mail_monitor", {})
+    if not mail_cfg.get("imap_host") or not mail_cfg.get("imap_user") or not mail_cfg.get("imap_password"):
+        return {"ok": False, "message": "IMAP 未配置"}
+    processed = read_json(RUNTIME_DIR / "mail_processed.json", {})
+    since = (datetime.now() - timedelta(days=int(mail_cfg.get("lookback_days", 14)))).strftime("%d-%b-%Y")
+    with imaplib.IMAP4_SSL(mail_cfg["imap_host"], int(mail_cfg.get("imap_port", 993))) as client:
+        client.login(mail_cfg["imap_user"], mail_cfg["imap_password"])
+        client.select(mail_cfg.get("mailbox", "INBOX"))
+        status, data = client.search(None, f'(SINCE "{since}")')
+        if status != "OK":
+            return {"ok": False, "message": "IMAP search failed"}
+        ids = data[0].split()
+        checked = 0
+        bounces = 0
+        interested = 0
+        for msg_id in ids[-200:]:
+            msg_key = msg_id.decode("ascii", errors="ignore")
+            if processed.get(msg_key):
+                continue
+            status, msg_data = client.fetch(msg_id, "(RFC822)")
+            if status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                continue
+            raw = msg_data[0][1]
+            msg = email.message_from_bytes(raw)
+            subject = decode_mime_header(msg.get("Subject"))
+            from_addr = decode_mime_header(msg.get("From"))
+            text = message_text(msg)
+            lower = f"{subject}\n{from_addr}\n{text}".lower()
+            checked += 1
+            if any(token.lower() in lower for token in config.get("bounce_keywords", [])):
+                emails = [value.lower() for value in EMAIL_RE.findall(text) if is_valid_email(value)]
+                for bounced in dict.fromkeys(emails):
+                    model_key = find_model_for_email(config, bounced)
+                    if model_key:
+                        retry_after_bounce(config, model_key, bounced)
+                        bounces += 1
+                        break
+            elif any(token.lower() in lower for token in config.get("interest_keywords", [])):
+                emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
+                item = {
+                    "time": now_iso(),
+                    "from": from_addr,
+                    "subject": subject,
+                    "email": emails[0] if emails else "",
+                    "snippet": re.sub(r"\s+", " ", text)[:500],
+                    "status": "待处理",
+                }
+                add_intervention(item)
+                interested += 1
+            processed[msg_key] = now_iso()
+        write_json(RUNTIME_DIR / "mail_processed.json", processed)
+        return {"ok": True, "checked": checked, "bounces": bounces, "interested": interested}
+
+
+def mail_monitor_loop() -> None:
+    append_log("邮件监控已启动")
+    while not MAIL_MONITOR_STOP.is_set():
+        try:
+            result = poll_mail_once()
+            append_log("邮件监控: " + json.dumps(result, ensure_ascii=False))
+        except Exception as exc:
+            append_log(f"邮件监控错误: {exc}")
+        interval = int(load_config().get("mail_monitor", {}).get("interval_seconds", 300))
+        MAIL_MONITOR_STOP.wait(max(30, interval))
+    append_log("邮件监控已停止")
+
+
+def start_mail_monitor() -> dict[str, Any]:
+    global MAIL_MONITOR_THREAD
+    mail_cfg = load_config().get("mail_monitor", {})
+    if not (mail_cfg.get("imap_host") and mail_cfg.get("imap_user") and mail_cfg.get("imap_password")):
+        return {"running": False, "message": "IMAP 未配置"}
+    if MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive():
+        return {"running": True, "message": "already running"}
+    MAIL_MONITOR_STOP.clear()
+    MAIL_MONITOR_THREAD = threading.Thread(target=mail_monitor_loop, name="mail-monitor", daemon=True)
+    MAIL_MONITOR_THREAD.start()
+    return {"running": True}
+
+
+def stop_mail_monitor() -> dict[str, Any]:
+    MAIL_MONITOR_STOP.set()
+    return {"running": False}
+
+
+def run_task(kind: str, fn: Any, *args: Any) -> dict[str, Any]:
+    global CURRENT_TASK
+    with TASK_LOCK:
+        if CURRENT_TASK and CURRENT_TASK.get("status") == "running":
+            raise RuntimeError("已有任务正在运行")
+        CURRENT_TASK = {"kind": kind, "status": "running", "started_at": now_iso(), "progress": "", "result": None}
+
+    def worker() -> None:
+        global CURRENT_TASK
+        try:
+            result = fn(*args)
+            CURRENT_TASK = {**(CURRENT_TASK or {}), "status": "done", "finished_at": now_iso(), "result": result}
+            append_log(f"任务完成: {kind}")
+        except Exception as exc:
+            CURRENT_TASK = {**(CURRENT_TASK or {}), "status": "failed", "finished_at": now_iso(), "error": str(exc)}
+            append_log(f"任务失败: {kind}: {exc}")
+
+    threading.Thread(target=worker, name=f"task-{kind}", daemon=True).start()
+    return CURRENT_TASK
+
+
+class ApiHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        append_log("HTTP " + format % args)
+
+    def read_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def send_json(self, data: Any, status: int = 200) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        if self.path == "/api/status":
+            self.send_json(dashboard_status())
+            return
+        if self.path == "/api/config":
+            cfg = load_config()
+            redacted = dict(cfg)
+            mail_cfg = dict(redacted.get("mail_monitor", {}))
+            if mail_cfg.get("imap_password"):
+                mail_cfg["imap_password"] = "***"
+            redacted["mail_monitor"] = mail_cfg
+            self.send_json(redacted)
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:
+        try:
+            if self.path == "/api/daily-collect":
+                body = self.read_body()
+                limit = max(1, min(50, int(body.get("limit", 10))))
+                self.send_json(run_task("daily_collect", daily_collect, limit))
+                return
+            if self.path == "/api/send":
+                body = self.read_body()
+                model_key = body.get("model")
+                limit = max(1, min(500, int(body.get("limit", 1))))
+                if model_key not in load_config().get("models", {}):
+                    raise RuntimeError("未知车型")
+                self.send_json(run_task(f"send_{model_key}", send_for_model, model_key, limit))
+                return
+            if self.path == "/api/mail/start":
+                self.send_json(start_mail_monitor())
+                return
+            if self.path == "/api/mail/stop":
+                self.send_json(stop_mail_monitor())
+                return
+            if self.path == "/api/mail/poll":
+                self.send_json(run_task("mail_poll_once", poll_mail_once))
+                return
+            if self.path == "/api/intervention/close":
+                body = self.read_body()
+                index = int(body.get("index", -1))
+                items = read_json(INTERVENTION_PATH, [])
+                if 0 <= index < len(items):
+                    items[index]["status"] = "已处理"
+                    items[index]["handled_at"] = now_iso()
+                    write_json(INTERVENTION_PATH, items)
+                self.send_json({"ok": True})
+                return
+            self.send_json({"error": "not found"}, 404)
+        except Exception as exc:
+            self.send_json({"error": str(exc)}, 500)
+
+
+def main() -> int:
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    config = load_config()
+    mail_cfg = config.get("mail_monitor", {})
+    if mail_cfg.get("enabled_on_start") and mail_cfg.get("imap_host") and mail_cfg.get("imap_user") and mail_cfg.get("imap_password"):
+        start_mail_monitor()
+    host = config.get("host", "127.0.0.1")
+    port = int(config.get("port", 8765))
+    append_log(f"客户增长控制台启动 http://{host}:{port}")
+    server = ThreadingHTTPServer((host, port), ApiHandler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop_mail_monitor()
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
