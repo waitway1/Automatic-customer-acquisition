@@ -10,70 +10,87 @@
     <header class="topbar">
       <div>
         <h1>客户增长控制台</h1>
-        <p id="clock">正在读取...</p>
+        <p id="clock">正在读取数据</p>
       </div>
       <div class="actions">
-        <button id="refreshBtn" class="iconButton" title="刷新">↻</button>
-        <button id="mailBtn" class="secondary">启动邮件监控</button>
-        <button id="pollBtn" class="secondary">立即检查邮件</button>
+        <button id="refreshBtn" class="secondary" title="刷新数据">刷新</button>
         <button id="dailyBtn">每日获客</button>
       </div>
     </header>
 
     <main>
-      <section class="summaryBand">
+      <section class="summaryBand" aria-label="客户概览">
         <div>
           <span>客户总数</span>
           <strong id="totalCount">0</strong>
         </div>
         <div>
-          <span>未发送</span>
+          <span>未发客户</span>
           <strong id="unsentCount">0</strong>
         </div>
         <div>
-          <span>失效邮箱</span>
-          <strong id="invalidCount">0</strong>
+          <span>已发客户</span>
+          <strong id="sentCount">0</strong>
         </div>
         <div>
-          <span>待我介入</span>
+          <span>待人工跟进</span>
           <strong id="interventionCount">0</strong>
         </div>
       </section>
 
-      <section class="controls">
-        <div class="controlGroup">
-          <label for="modelSelect">车型</label>
-          <select id="modelSelect"></select>
+      <section class="panel sendPanel">
+        <div class="sectionHeader tight">
+          <div>
+            <h2>邮件发送</h2>
+            <p>选择车型、数量和发件邮箱后执行</p>
+          </div>
+          <span id="taskState">空闲</span>
         </div>
-        <div class="controlGroup">
-          <label for="sendLimit">发送数量</label>
-          <input id="sendLimit" type="number" min="1" max="500" value="10">
+        <div class="controls">
+          <label>
+            <span>车型</span>
+            <select id="modelSelect"></select>
+          </label>
+          <label>
+            <span>发送数量</span>
+            <input id="sendLimit" type="number" min="1" max="500" value="10">
+          </label>
+          <label>
+            <span>发件邮箱</span>
+            <select id="senderSelect"></select>
+          </label>
+          <button id="sendBtn">发送邮件</button>
         </div>
-        <button id="sendBtn">发送邮件</button>
       </section>
 
       <section>
         <div class="sectionHeader">
-          <h2>五个类别</h2>
-          <span id="taskState">空闲</span>
+          <div>
+            <h2>类别</h2>
+            <p>每个车型独立统计客户、发送状态和失效邮箱</p>
+          </div>
         </div>
-        <div id="modelGrid" class="grid"></div>
+        <div id="modelGrid" class="modelGrid"></div>
       </section>
 
       <section class="twoColumn">
         <div>
           <div class="sectionHeader">
-            <h2>需要我介入</h2>
-            <span>客户感兴趣后进入这里</span>
+            <div>
+              <h2>邮箱状态</h2>
+              <p>网站启动后自动后台检测，包含垃圾邮件和垃圾箱</p>
+            </div>
           </div>
-          <div id="interventionList" class="list"></div>
+          <div id="mailGrid" class="mailGrid"></div>
         </div>
         <div>
           <div class="sectionHeader">
-            <h2>运行日志</h2>
-            <span>最近 120 条</span>
+            <div>
+              <h2>待人工跟进</h2>
+              <p>客户出现采购意向、询价或合作信号后进入这里</p>
+            </div>
           </div>
-          <pre id="logs" class="logs"></pre>
+          <div id="interventionList" class="list"></div>
         </div>
       </section>
     </main>

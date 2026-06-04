@@ -10,13 +10,52 @@
   "mail_monitor": {
     "enabled_on_start": true,
     "interval_seconds": 300,
-    "imap_host": "",
-    "imap_port": 993,
-    "imap_user": "",
-    "imap_password": "",
-    "mailbox": "INBOX",
-    "lookback_days": 14
+    "lookback_days": 14,
+    "default_folders": [
+      "INBOX",
+      "Spam",
+      "Junk",
+      "Junk Email",
+      "Trash",
+      "Deleted Messages",
+      "[Gmail]/Spam",
+      "[Gmail]/Trash",
+      "垃圾邮件",
+      "垃圾箱"
+    ]
   },
+  "mail_accounts": [
+    {
+      "key": "aliyun_mail",
+      "label": "阿里邮箱",
+      "sender_profile": "aliyun_sender",
+      "imap_host": "imaphk.qiye.aliyun.com",
+      "imap_port": 993,
+      "imap_user": "",
+      "imap_password": "",
+      "folders": []
+    },
+    {
+      "key": "gmail_mail",
+      "label": "Gmail",
+      "sender_profile": "gmail_sender",
+      "imap_host": "imap.gmail.com",
+      "imap_port": 993,
+      "imap_user": "",
+      "imap_password": "",
+      "folders": []
+    },
+    {
+      "key": "qq_mail",
+      "label": "QQ邮箱",
+      "sender_profile": "qq_sender",
+      "imap_host": "imap.qq.com",
+      "imap_port": 993,
+      "imap_user": "",
+      "imap_password": "",
+      "folders": []
+    }
+  ],
   "models": {
     "ranger_t9": {
       "label": "Ranger T9",

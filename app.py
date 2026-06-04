@@ -33,6 +33,7 @@ LOG_PATH = RUNTIME_DIR / "events.log"
 TASKS_PATH = RUNTIME_DIR / "tasks.json"
 INTERVENTION_PATH = RUNTIME_DIR / "intervention.json"
 BOUNCE_STATE_PATH = RUNTIME_DIR / "bounce_state.json"
+MAIL_STATUS_PATH = RUNTIME_DIR / "mail_status.json"
 GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
 ASSET_DIR = ROOT / "work" / "assets"
 
@@ -348,7 +349,6 @@ def dashboard_status() -> dict[str, Any]:
                 {
                     "key": key,
                     "label": model["label"],
-                    "workbook": str(model_workbook_path(config, key)),
                     "count": len(rows),
                     "sent": sent,
                     "unsent": len(rows) - sent,
@@ -366,7 +366,8 @@ def dashboard_status() -> dict[str, Any]:
         "task": CURRENT_TASK,
         "intervention": read_json(INTERVENTION_PATH, []),
         "mail_monitor": {"running": MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()},
-        "recent_logs": tail_lines(LOG_PATH, 120),
+        "mail_accounts": mail_account_statuses(config),
+        "senders": sender_options(config),
     }
 
 
@@ -375,6 +376,63 @@ def tail_lines(path: Path, limit: int) -> list[str]:
         return []
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     return lines[-limit:]
+
+
+def sender_profiles(config: dict[str, Any]) -> dict[str, Any]:
+    package = Path(config.get("outreach_package", ""))
+    path = package / "sender_profiles.local.json"
+    return read_json(path, {})
+
+
+def sender_options(config: dict[str, Any]) -> list[dict[str, str]]:
+    options = []
+    for key, profile in sender_profiles(config).items():
+        options.append(
+            {
+                "key": key,
+                "label": key,
+                "user": normalize(profile.get("user")),
+                "host": normalize(profile.get("host")),
+            }
+        )
+    return options
+
+
+def resolve_mail_account(config: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
+    profiles = sender_profiles(config)
+    profile = profiles.get(account.get("sender_profile"), {})
+    folders = account.get("folders") or config.get("mail_monitor", {}).get("default_folders", ["INBOX"])
+    return {
+        "key": account.get("key") or account.get("label") or "mail",
+        "label": account.get("label") or account.get("key") or "Mail",
+        "imap_host": normalize(account.get("imap_host")),
+        "imap_port": int(account.get("imap_port", 993)),
+        "imap_user": normalize(account.get("imap_user")) or normalize(profile.get("user")),
+        "imap_password": normalize(account.get("imap_password")) or normalize(profile.get("password")),
+        "folders": folders,
+    }
+
+
+def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
+    saved = read_json(MAIL_STATUS_PATH, {})
+    statuses = []
+    for account in config.get("mail_accounts", []):
+        resolved = resolve_mail_account(config, account)
+        item = {
+            "key": resolved["key"],
+            "label": resolved["label"],
+            "user": resolved["imap_user"],
+            "status": "未配置" if not (resolved["imap_host"] and resolved["imap_user"] and resolved["imap_password"] and resolved["imap_password"] != "replace-me") else "等待检查",
+            "last_checked": "",
+            "checked": 0,
+            "bounces": 0,
+            "interested": 0,
+            "folders": [],
+            "error": "",
+        }
+        item.update(saved.get(resolved["key"], {}))
+        statuses.append(item)
+    return statuses
 
 
 def anysearch_cmd(config: dict[str, Any]) -> list[str]:
@@ -555,6 +613,34 @@ def daily_collect(limit_per_model: int) -> dict[str, Any]:
     return {"daily_limit": limit_per_model, "results": results}
 
 
+def reset_model_send_state(model_key: str) -> dict[str, Any]:
+    config = load_config()
+    model = config["models"][model_key]
+    path, workbook, sheet, _headers, mapping = open_model_sheet(config, model_key, data_only=False)
+    try:
+        first_col = mapping.get("first_time")
+        email_col = mapping.get("email")
+        if not first_col or not email_col:
+            raise RuntimeError("找不到发送状态列或邮箱列")
+        backup = path.with_name(f"{path.stem}.reset-bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}{path.suffix}")
+        shutil.copy2(path, backup)
+        reset_count = 0
+        for row_number in range(2, sheet.max_row + 1):
+            if normalize(sheet.cell(row_number, email_col).value):
+                sheet.cell(row_number, first_col).value = None
+                reset_count += 1
+        workbook.save(path)
+        append_log(f"reset send state: {model['label']} rows={reset_count} backup={backup}")
+        return {
+            "model": model_key,
+            "label": model["label"],
+            "reset_rows": reset_count,
+            "backup": str(backup),
+        }
+    finally:
+        workbook.close()
+
+
 def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profile: str | None = None) -> Path:
     model = config["models"][model_key]
     GENERATED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -628,11 +714,11 @@ def ensure_fallback_logo() -> Path:
     return logo
 
 
-def send_for_model(model_key: str, limit: int) -> dict[str, Any]:
+def send_for_model(model_key: str, limit: int, sender_profile: str | None = None) -> dict[str, Any]:
     config = load_config()
     model = config["models"][model_key]
     package = Path(config["outreach_package"])
-    cfg_path = ensure_outreach_config(config, model_key)
+    cfg_path = ensure_outreach_config(config, model_key, sender_profile)
     python_exe = config.get("python", "python")
     script = package / "scripts" / "send_portable_campaign.py"
     cmd = [python_exe, str(script), "--config", str(cfg_path), "--limit", str(limit)]
@@ -645,7 +731,7 @@ def send_for_model(model_key: str, limit: int) -> dict[str, Any]:
     if proc.returncode != 0:
         raise RuntimeError(f"发送失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
     append_log(f"完成发送: {model['label']} limit={limit}")
-    return {"model": model_key, "label": model["label"], "limit": limit, "returncode": proc.returncode}
+    return {"model": model_key, "label": model["label"], "limit": limit, "sender": sender_profile or config.get("sender_profile"), "returncode": proc.returncode}
 
 
 def send_target_email_for_model(model_key: str, target_email: str) -> dict[str, Any]:
@@ -869,6 +955,113 @@ def stop_mail_monitor() -> dict[str, Any]:
     return {"running": False}
 
 
+def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
+    msg = email.message_from_bytes(raw)
+    subject = decode_mime_header(msg.get("Subject"))
+    from_addr = decode_mime_header(msg.get("From"))
+    text = message_text(msg)
+    lower = f"{subject}\n{from_addr}\n{text}".lower()
+    if any(token.lower() in lower for token in config.get("bounce_keywords", [])):
+        emails = [value.lower() for value in EMAIL_RE.findall(text) if is_valid_email(value)]
+        for bounced in dict.fromkeys(emails):
+            model_key = find_model_for_email(config, bounced)
+            if model_key:
+                retry_after_bounce(config, model_key, bounced)
+                return 1, 0
+        return 0, 0
+    if any(token.lower() in lower for token in config.get("interest_keywords", [])):
+        emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
+        add_intervention(
+            {
+                "time": now_iso(),
+                "from": from_addr,
+                "subject": subject,
+                "email": emails[0] if emails else "",
+                "snippet": re.sub(r"\s+", " ", text)[:500],
+                "status": "待处理",
+            }
+        )
+        return 0, 1
+    return 0, 0
+
+
+def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed: dict[str, str]) -> dict[str, Any]:
+    resolved = resolve_mail_account(config, account)
+    status = {
+        "key": resolved["key"],
+        "label": resolved["label"],
+        "user": resolved["imap_user"],
+        "status": "未配置",
+        "last_checked": now_iso(),
+        "checked": 0,
+        "bounces": 0,
+        "interested": 0,
+        "folders": [],
+        "error": "",
+    }
+    if not (resolved["imap_host"] and resolved["imap_user"] and resolved["imap_password"]) or resolved["imap_password"] == "replace-me":
+        status["error"] = "IMAP账号未配置"
+        return status
+    since = (datetime.now() - timedelta(days=int(config.get("mail_monitor", {}).get("lookback_days", 14)))).strftime("%d-%b-%Y")
+    try:
+        with imaplib.IMAP4_SSL(resolved["imap_host"], resolved["imap_port"], timeout=45) as client:
+            client.login(resolved["imap_user"], resolved["imap_password"])
+            for folder in resolved["folders"]:
+                try:
+                    select_status, _ = client.select(folder, readonly=True)
+                except Exception:
+                    continue
+                if select_status != "OK":
+                    continue
+                status["folders"].append(folder)
+                search_status, data = client.search(None, f'(SINCE "{since}")')
+                if search_status != "OK":
+                    continue
+                for msg_id in data[0].split()[-200:]:
+                    msg_key = f"{resolved['key']}:{folder}:{msg_id.decode('ascii', errors='ignore')}"
+                    if processed.get(msg_key):
+                        continue
+                    fetch_status, msg_data = client.fetch(msg_id, "(RFC822)")
+                    if fetch_status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
+                        continue
+                    bounces, interested = process_mail_message(config, msg_data[0][1])
+                    status["checked"] += 1
+                    status["bounces"] += bounces
+                    status["interested"] += interested
+                    processed[msg_key] = now_iso()
+        status["status"] = "正常"
+    except Exception as exc:
+        status["status"] = "异常"
+        status["error"] = str(exc)
+    return status
+
+
+def poll_mail_once() -> dict[str, Any]:
+    config = load_config()
+    processed = read_json(RUNTIME_DIR / "mail_processed.json", {})
+    statuses = {}
+    total = {"checked": 0, "bounces": 0, "interested": 0}
+    for account in config.get("mail_accounts", []):
+        result = poll_mail_account(config, account, processed)
+        statuses[result["key"]] = result
+        total["checked"] += int(result.get("checked", 0))
+        total["bounces"] += int(result.get("bounces", 0))
+        total["interested"] += int(result.get("interested", 0))
+    write_json(RUNTIME_DIR / "mail_processed.json", processed)
+    write_json(MAIL_STATUS_PATH, statuses)
+    return {"ok": True, "accounts": list(statuses.values()), **total}
+
+
+def start_mail_monitor() -> dict[str, Any]:
+    global MAIL_MONITOR_THREAD
+    if MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive():
+        return {"running": True, "message": "already running"}
+    MAIL_MONITOR_STOP.clear()
+    MAIL_MONITOR_THREAD = threading.Thread(target=mail_monitor_loop, name="mail-monitor", daemon=True)
+    MAIL_MONITOR_THREAD.start()
+    return {"running": True}
+
+
 def run_task(kind: str, fn: Any, *args: Any) -> dict[str, Any]:
     global CURRENT_TASK
     with TASK_LOCK:
@@ -922,6 +1115,10 @@ class ApiHandler(SimpleHTTPRequestHandler):
             if mail_cfg.get("imap_password"):
                 mail_cfg["imap_password"] = "***"
             redacted["mail_monitor"] = mail_cfg
+            redacted["mail_accounts"] = [
+                {**account, "imap_password": "***" if account.get("imap_password") else ""}
+                for account in redacted.get("mail_accounts", [])
+            ]
             self.send_json(redacted)
             return
         super().do_GET()
@@ -937,9 +1134,17 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 body = self.read_body()
                 model_key = body.get("model")
                 limit = max(1, min(500, int(body.get("limit", 1))))
+                sender_profile = normalize(body.get("sender"))
                 if model_key not in load_config().get("models", {}):
                     raise RuntimeError("未知车型")
-                self.send_json(run_task(f"send_{model_key}", send_for_model, model_key, limit))
+                self.send_json(run_task(f"send_{model_key}", send_for_model, model_key, limit, sender_profile))
+                return
+            if self.path == "/api/reset-model":
+                body = self.read_body()
+                model_key = body.get("model")
+                if model_key not in load_config().get("models", {}):
+                    raise RuntimeError("未知车型")
+                self.send_json(run_task(f"reset_{model_key}", reset_model_send_state, model_key))
                 return
             if self.path == "/api/mail/start":
                 self.send_json(start_mail_monitor())
@@ -970,7 +1175,7 @@ def main() -> int:
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
     config = load_config()
     mail_cfg = config.get("mail_monitor", {})
-    if mail_cfg.get("enabled_on_start") and mail_cfg.get("imap_host") and mail_cfg.get("imap_user") and mail_cfg.get("imap_password"):
+    if mail_cfg.get("enabled_on_start"):
         start_mail_monitor()
     host = config.get("host", "127.0.0.1")
     port = int(config.get("port", 8765))

@@ -7,6 +7,12 @@ cd E:\celeste
 .\start.ps1
 ```
 
+也可以直接双击：
+
+```text
+E:\celeste\Start-Customer-Console.bat
+```
+
 浏览器打开：
 
 ```text
