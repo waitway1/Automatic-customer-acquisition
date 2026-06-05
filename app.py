@@ -133,8 +133,11 @@ STRONG_INTEREST_PATTERNS = (
     r"\byour products are very interesting\b",
     r"\bwe can integrate your catalog",
     r"\binclude them on our website\b",
+    r"\bwant (?:more )?(?:info|information)\b",
+    r"\bmore info\b",
     r"\bmore information\b",
     r"\bfurther information\b",
+    r"\bplease send\b",
     r"\bwebsite where i can have a look\b",
     r"\bis your .* compatible\b",
     r"\bcompatible with\b",
@@ -146,6 +149,11 @@ STRONG_INTEREST_PATTERNS = (
     r"\bprecios?\b",
     r"\btiempos de entrega\b",
     r"报价",
+    r"询价",
+    r"询问",
+    r"咨询",
+    r"想了解",
+    r"了解一下",
     r"价格",
     r"目录",
     r"样品",
@@ -1176,9 +1184,6 @@ def is_auto_or_noise(subject: str, from_addr: str, text: str) -> bool:
 
 
 def is_interested_message(config: dict[str, Any], subject: str, from_addr: str, text: str) -> bool:
-    sender = sender_email(from_addr)
-    if sender and sender in own_sender_emails(config):
-        return False
     lead = leading_message_text(text)
     if not lead:
         return False
