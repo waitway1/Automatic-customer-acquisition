@@ -1209,16 +1209,16 @@ def send_with_fallback_for_target(model_key: str, target_email: str, primary_pro
     except Exception as first_exc:
         attempts.append({"sender": primary, "ok": False, "error": str(first_exc)})
         if not retry or retry == primary:
-            record_today_invalid(model_key, target_email, primary, str(first_exc))
-            return {"ok": False, "attempts": attempts}
+            moved = mark_final_invalid_email(config, model_key, target_email, primary, str(first_exc), "最终发送失败")
+            return {"ok": False, "attempts": attempts, "moved_to_invalid": moved}
         try:
             result = send_target_email_for_model(model_key, target_email, retry, log_label=f"{context}备用发送")
             attempts.append({"sender": retry, "ok": True})
             return {"ok": True, "result": result, "attempts": attempts}
         except Exception as second_exc:
             attempts.append({"sender": retry, "ok": False, "error": str(second_exc)})
-            record_today_invalid(model_key, target_email, retry, str(second_exc))
-            return {"ok": False, "attempts": attempts}
+            moved = mark_final_invalid_email(config, model_key, target_email, retry, str(second_exc), "备用邮箱发送失败")
+            return {"ok": False, "attempts": attempts, "moved_to_invalid": moved}
 
 
 def daily_collect(limit_per_model: int) -> dict[str, Any]:
@@ -1444,6 +1444,17 @@ def move_invalid_email(config: dict[str, Any], model_key: str, email_value: str,
         workbook.close()
 
 
+def mark_final_invalid_email(config: dict[str, Any], model_key: str, email_value: str, sender_profile: str, reason: str, label: str) -> bool:
+    record_today_invalid(model_key, email_value, sender_profile, reason)
+    try:
+        moved = move_invalid_email(config, model_key, email_value, label)
+    except Exception as exc:
+        append_log(f"移入邮箱失效失败: {email_value} :: {exc}")
+        return False
+    append_log(f"最终失效处理: {email_value} moved={moved}")
+    return moved
+
+
 def find_model_for_email(config: dict[str, Any], email_value: str) -> str | None:
     target = email_value.lower()
     for key in config.get("models", {}):
@@ -1488,9 +1499,9 @@ def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: st
     except Exception as exc:
         state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso(), "retry_error": str(exc)[:500]}
         write_json(BOUNCE_STATE_PATH, state)
-        record_today_invalid(model_key, bounced_email, retry_sender, str(exc))
-        append_log(f"退信备用发送失败，已计入今日失效: {bounced_email}")
-        return {"action": "retry_send_failed", "error": str(exc)}
+        moved = mark_final_invalid_email(config, model_key, bounced_email, retry_sender, str(exc), "退信备用发送失败")
+        append_log(f"退信备用发送失败，已计入今日失效: {bounced_email} moved={moved}")
+        return {"action": "retry_send_failed", "error": str(exc), "moved_to_invalid": moved}
     state[key] = {"retried": True, "failed_final": False, "updated_at": now_iso()}
     write_json(BOUNCE_STATE_PATH, state)
     return {"action": "retried_once", "send_result": send_result}
