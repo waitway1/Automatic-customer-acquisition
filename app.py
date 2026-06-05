@@ -5,6 +5,7 @@ import email
 import imaplib
 import json
 import base64
+import hashlib
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
-from html import escape
+from html import escape, unescape
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
@@ -84,6 +85,73 @@ BAD_HOSTS = {
     "etsy.com",
     "google.com",
 }
+AUTO_REPLY_TERMS = (
+    "automated reply",
+    "automatic reply",
+    "auto reply",
+    "auto-reply",
+    "do not reply",
+    "no reply",
+    "noreply",
+    "no-reply",
+    "request received",
+    "we have received your message",
+    "we've received your message",
+    "your request has been received",
+    "ticket was created",
+    "support ticket",
+    "how would you rate",
+    "satisfaction",
+    "please rate",
+    "customer service survey",
+    "view in browser",
+    "unsubscribe",
+    "price drop",
+    "newsletter",
+    "advertisement",
+    "退订",
+    "投诉",
+    "自动回复",
+    "系统邮件",
+    "已收到您的邮件",
+)
+STRONG_INTEREST_PATTERNS = (
+    r"\bsend me (?:a )?(?:catalog|catalogue|price|pricing|quote|quotation)",
+    r"\bplease send (?:us |me )?(?:your )?(?:catalog|catalogue|price|pricing|quote|quotation|more information)",
+    r"\bcatalog(?:ue)? and pric(?:e|ing)",
+    r"\bprice list\b",
+    r"\bpurchase prices?\b",
+    r"\bhow much\b",
+    r"\bminimum order\b",
+    r"\bmoq\b",
+    r"\bdelivery (?:time|times|cost|costs|fee|fees)",
+    r"\blead time\b",
+    r"\bwe (?:are|would be|might be) interested\b",
+    r"\bthat could indeed be quite interesting\b",
+    r"\byour products are very interesting\b",
+    r"\bwe can integrate your catalog",
+    r"\binclude them on our website\b",
+    r"\bmore information\b",
+    r"\bfurther information\b",
+    r"\bwebsite where i can have a look\b",
+    r"\bis your .* compatible\b",
+    r"\bcompatible with\b",
+    r"\bcatalogues with excel files\b",
+    r"\bgoogle drive links?\b",
+    r"\binteresados\b",
+    r"\binteresado\b",
+    r"\bm[aá]s informaci[oó]n\b",
+    r"\bprecios?\b",
+    r"\btiempos de entrega\b",
+    r"报价",
+    r"价格",
+    r"目录",
+    r"样品",
+    r"采购",
+    r"合作",
+    r"请发",
+    r"发我",
+)
 COUNTRY_BY_SUFFIX = {
     ".com.au": "澳大利亚",
     ".au": "澳大利亚",
@@ -418,7 +486,7 @@ def dashboard_status() -> dict[str, Any]:
         "now": now_iso(),
         "models": models,
         "task": CURRENT_TASK,
-        "intervention": read_json(INTERVENTION_PATH, []),
+        "intervention": read_interventions(),
         "mail_monitor": {"running": MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()},
         "mail_accounts": mail_account_statuses(config),
         "senders": sender_options(config),
@@ -924,6 +992,16 @@ def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: st
     return {"action": "retried_once", "send_result": send_result}
 
 
+def decode_payload(payload: bytes, charset: str | None) -> str:
+    encoding = (charset or "utf-8").lower()
+    if encoding in {"unknown-8bit", "x-unknown", "unknown"}:
+        encoding = "utf-8"
+    try:
+        return payload.decode(encoding, errors="replace")
+    except LookupError:
+        return payload.decode("utf-8", errors="replace")
+
+
 def message_text(msg: email.message.Message) -> str:
     parts = []
     if msg.is_multipart():
@@ -933,22 +1011,152 @@ def message_text(msg: email.message.Message) -> str:
                 continue
             payload = part.get_payload(decode=True)
             if payload:
-                parts.append(payload.decode(part.get_content_charset() or "utf-8", errors="replace"))
+                parts.append(decode_payload(payload, part.get_content_charset()))
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            parts.append(payload.decode(msg.get_content_charset() or "utf-8", errors="replace"))
+            parts.append(decode_payload(payload, msg.get_content_charset()))
     return "\n".join(parts)
 
 
+def clean_message_text(text: str) -> str:
+    cleaned = re.sub(r"(?is)<(script|style).*?</\1>", " ", text)
+    cleaned = re.sub(r"(?is)<br\s*/?>", "\n", cleaned)
+    cleaned = re.sub(r"(?is)</p\s*>", "\n", cleaned)
+    cleaned = re.sub(r"(?is)<[^>]+>", " ", cleaned)
+    cleaned = unescape(cleaned)
+    cleaned = re.sub(r"\r\n?", "\n", cleaned)
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def sender_email(from_addr: str) -> str:
+    matches = EMAIL_RE.findall(from_addr or "")
+    return matches[0].lower() if matches else ""
+
+
+def own_sender_emails(config: dict[str, Any]) -> set[str]:
+    emails: set[str] = set()
+    for account in config.get("mail_accounts", []):
+        resolved = resolve_mail_account(config, account)
+        if resolved.get("imap_user"):
+            emails.add(resolved["imap_user"].lower())
+    for profile in sender_profiles(config).values():
+        user = normalize(profile.get("user")).lower()
+        if user:
+            emails.add(user)
+    return emails
+
+
+def leading_message_text(text: str) -> str:
+    head = clean_message_text(text)
+    delimiters = (
+        "\nOn ",
+        "\nFrom:",
+        "\nDe :",
+        "\n发件人：",
+        "\n-----Original Message-----",
+        "\n________________________________",
+    )
+    for delimiter in delimiters:
+        if delimiter in head:
+            head = head.split(delimiter, 1)[0]
+    return head.strip()
+
+
+def is_auto_or_noise(subject: str, from_addr: str, text: str) -> bool:
+    sender = sender_email(from_addr)
+    local = sender.split("@", 1)[0] if sender else ""
+    merged = f"{subject}\n{from_addr}\n{text}".lower()
+    if local in {"noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "postmaster"}:
+        return True
+    return any(term in merged for term in AUTO_REPLY_TERMS)
+
+
+def is_interested_message(config: dict[str, Any], subject: str, from_addr: str, text: str) -> bool:
+    sender = sender_email(from_addr)
+    if sender and sender in own_sender_emails(config):
+        return False
+    lead = leading_message_text(text)
+    if not lead:
+        return False
+    if is_auto_or_noise(subject, from_addr, lead):
+        return False
+    merged = f"{subject}\n{lead}".lower()
+    return any(re.search(pattern, merged, re.I) for pattern in STRONG_INTEREST_PATTERNS)
+
+
+def intervention_id(item: dict[str, Any]) -> str:
+    raw = "|".join(
+        [
+            normalize(item.get("from")),
+            normalize(item.get("subject")),
+            normalize(item.get("email")),
+            normalize(item.get("time")),
+        ]
+    )
+    return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def normalize_intervention_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    normalized.setdefault("id", intervention_id(normalized))
+    normalized.setdefault("read_at", "")
+    if normalized.get("body") and not normalized.get("snippet"):
+        normalized["snippet"] = clean_message_text(normalized["body"])[:240]
+    return normalized
+
+
+def read_interventions() -> list[dict[str, Any]]:
+    raw = read_json(INTERVENTION_PATH, [])
+    if isinstance(raw, dict):
+        if isinstance(raw.get("value"), list):
+            raw = raw["value"]
+        elif raw:
+            raw = [raw]
+        else:
+            raw = []
+    if not isinstance(raw, list):
+        raw = []
+    return [normalize_intervention_item(item) for item in raw if isinstance(item, dict)]
+
+
 def add_intervention(item: dict[str, Any]) -> None:
-    items = read_json(INTERVENTION_PATH, [])
+    item = normalize_intervention_item(item)
+    items = read_interventions()
     signature = (item.get("from", ""), item.get("subject", ""), item.get("email", ""))
     for existing in items:
         if (existing.get("from", ""), existing.get("subject", ""), existing.get("email", "")) == signature:
             return
     items.insert(0, item)
     write_json(INTERVENTION_PATH, items[:300])
+
+
+def update_intervention(item_id: str, values: dict[str, Any]) -> bool:
+    items = read_interventions()
+    changed = False
+    for item in items:
+        if item.get("id") == item_id:
+            item.update(values)
+            changed = True
+            break
+    if changed:
+        write_json(INTERVENTION_PATH, items)
+    return changed
+
+
+def clear_active_interventions() -> int:
+    items = read_interventions()
+    cleared = 0
+    for item in items:
+        if item.get("status") != "已处理":
+            item["status"] = "已处理"
+            item["handled_at"] = now_iso()
+            item["cleared"] = True
+            cleared += 1
+    write_json(INTERVENTION_PATH, items)
+    return cleared
 
 
 def poll_mail_once() -> dict[str, Any]:
@@ -1054,15 +1262,17 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
                 retry_after_bounce(config, model_key, bounced)
                 return 1, 0
         return 0, 0
-    if any(token.lower() in lower for token in config.get("interest_keywords", [])):
+    if is_interested_message(config, subject, from_addr, text):
         emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
+        body = leading_message_text(text)
         add_intervention(
             {
                 "time": now_iso(),
                 "from": from_addr,
                 "subject": subject,
                 "email": emails[0] if emails else "",
-                "snippet": re.sub(r"\s+", " ", text)[:500],
+                "snippet": re.sub(r"\s+", " ", body)[:240],
+                "body": body[:12000],
                 "status": "待处理",
             }
         )
@@ -1242,13 +1452,30 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/intervention/close":
                 body = self.read_body()
+                item_id = normalize(body.get("id"))
+                if item_id:
+                    updated = update_intervention(item_id, {"status": "已处理", "handled_at": now_iso()})
+                    self.send_json({"ok": True, "updated": updated})
+                    return
                 index = int(body.get("index", -1))
-                items = read_json(INTERVENTION_PATH, [])
+                items = read_interventions()
                 if 0 <= index < len(items):
                     items[index]["status"] = "已处理"
                     items[index]["handled_at"] = now_iso()
                     write_json(INTERVENTION_PATH, items)
-                self.send_json({"ok": True})
+                self.send_json({"ok": True, "updated": 0 <= index < len(items)})
+                return
+            if self.path == "/api/intervention/read":
+                body = self.read_body()
+                item_id = normalize(body.get("id"))
+                if not item_id:
+                    raise RuntimeError("缺少邮件ID")
+                updated = update_intervention(item_id, {"read_at": now_iso()})
+                self.send_json({"ok": True, "updated": updated})
+                return
+            if self.path == "/api/intervention/clear":
+                cleared = clear_active_interventions()
+                self.send_json({"ok": True, "cleared": cleared})
                 return
             self.send_json({"error": "not found"}, 404)
         except Exception as exc:

@@ -272,8 +272,13 @@ input {
 
 .twoColumn {
   display: grid;
-  grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+  grid-template-columns: minmax(340px, 0.88fr) minmax(0, 1.12fr);
   gap: 20px;
+  align-items: start;
+}
+
+.twoColumn > div {
+  min-width: 0;
 }
 
 .mailGrid,
@@ -321,12 +326,132 @@ input {
 .followItem {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
-.followItem p {
+.followItem p,
+.mailPreview {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.mailHeading {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mailHeading h3 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--blue);
+}
+
+.followItem.read .unreadDot {
+  opacity: 0;
+}
+
+.mailPreview {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.mailPreview:hover {
+  background: transparent;
+}
+
+.mailPreview span,
+.mailPreview strong,
+.followItem .subtle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mailPreview span {
+  color: var(--muted);
+}
+
+.mailPreview strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 27, 34, 0.42);
+}
+
+.modalOverlay[hidden] {
+  display: none;
+}
+
+.modalPanel {
+  width: min(820px, 100%);
+  max-height: min(760px, 88vh);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(20, 35, 45, 0.22);
+  overflow: hidden;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modalHeader > div {
+  min-width: 0;
+}
+
+.modalHeader h2,
+.modalHeader p {
+  overflow-wrap: anywhere;
+}
+
+.modalHeader p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.modalBody {
+  padding: 18px;
+  overflow: auto;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .task {

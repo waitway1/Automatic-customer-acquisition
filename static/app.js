@@ -1,10 +1,29 @@
 const state = {
   models: [],
   senders: [],
+  interventions: [],
   taskRunning: false,
 };
 
 const $ = (id) => document.getElementById(id);
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function textToHtml(value) {
+  return escapeHtml(value).replace(/\n/g, "<br>");
+}
+
+function shortText(value, length = 150) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, length)}...` : text;
+}
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -126,31 +145,60 @@ function renderIntervention(items) {
   const list = $("interventionList");
   list.innerHTML = "";
   const active = items.filter((item) => item.status !== "已处理");
+  $("clearInterventionBtn").disabled = !active.length;
   if (!active.length) {
     list.innerHTML = `<div class="empty">暂无需要人工跟进的客户。</div>`;
     return;
   }
   active.forEach((item, index) => {
     const node = document.createElement("div");
-    node.className = "followItem";
+    node.className = `followItem ${item.read_at ? "read" : "unread"}`;
+    const itemId = item.id || String(index);
     node.innerHTML = `
       <div class="cardTitle">
-        <h3>${item.subject || "无主题"}</h3>
-        <button class="ghost" data-index="${index}">完成</button>
+        <div class="mailHeading">
+          <span class="unreadDot" aria-hidden="true"></span>
+          <h3>${escapeHtml(item.subject || "无主题")}</h3>
+        </div>
+        <button class="ghost" data-close="${escapeHtml(itemId)}">完成</button>
       </div>
-      <p>${item.from || ""}</p>
-      <p>${item.snippet || ""}</p>
-      <p class="subtle">${item.time || ""}</p>
+      <button class="mailPreview" data-open="${escapeHtml(itemId)}" type="button">
+        <span>${escapeHtml(item.from || "")}</span>
+        <strong>${escapeHtml(shortText(item.snippet || item.body || ""))}</strong>
+      </button>
+      <p class="subtle">${escapeHtml(item.time || "")}</p>
     `;
-    node.querySelector("button").addEventListener("click", async () => {
+    node.querySelector("[data-close]").addEventListener("click", async (event) => {
+      event.stopPropagation();
       await api("/api/intervention/close", {
         method: "POST",
-        body: JSON.stringify({ index }),
+        body: JSON.stringify({ id: itemId }),
       });
       refresh();
     });
+    node.querySelector("[data-open]").addEventListener("click", () => openMailModal(item));
     list.appendChild(node);
   });
+}
+
+async function openMailModal(item) {
+  $("modalSubject").textContent = item.subject || "无主题";
+  $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
+  $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
+  $("mailModal").hidden = false;
+  if (!item.read_at && item.id) {
+    await api("/api/intervention/read", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    const current = state.interventions.find((entry) => entry.id === item.id);
+    if (current) current.read_at = new Date().toISOString();
+    renderIntervention(state.interventions);
+  }
+}
+
+function closeMailModal() {
+  $("mailModal").hidden = true;
 }
 
 function renderTask(task) {
@@ -171,11 +219,12 @@ async function refresh() {
   const data = await api("/api/status");
   state.models = data.models || [];
   state.senders = data.senders || [];
+  state.interventions = data.intervention || [];
   $("clock").textContent = `最后刷新 ${data.now}`;
   const total = state.models.reduce((sum, model) => sum + (model.count || 0), 0);
   const unsent = state.models.reduce((sum, model) => sum + (model.unsent || 0), 0);
   const sent = state.models.reduce((sum, model) => sum + (model.sent || 0), 0);
-  const interventions = (data.intervention || []).filter((item) => item.status !== "已处理").length;
+  const interventions = state.interventions.filter((item) => item.status !== "已处理").length;
   $("totalCount").textContent = total;
   $("unsentCount").textContent = unsent;
   $("sentCount").textContent = sent;
@@ -183,7 +232,7 @@ async function refresh() {
   fillSelects(state.models, state.senders);
   renderModels(state.models);
   renderMailAccounts(data.mail_accounts || []);
-  renderIntervention(data.intervention || []);
+  renderIntervention(state.interventions);
   renderTask(data.task);
 }
 
@@ -220,9 +269,26 @@ async function resetModel(model) {
   refresh();
 }
 
+async function clearInterventions() {
+  const active = state.interventions.filter((item) => item.status !== "已处理").length;
+  if (!active) return;
+  const ok = confirm(`确定清除 ${active} 封待人工跟进邮件吗？`);
+  if (!ok) return;
+  await api("/api/intervention/clear", { method: "POST", body: "{}" });
+  refresh();
+}
+
 $("refreshBtn").addEventListener("click", refresh);
 $("dailyBtn").addEventListener("click", startDaily);
 $("sendBtn").addEventListener("click", sendMail);
+$("clearInterventionBtn").addEventListener("click", clearInterventions);
+$("closeModalBtn").addEventListener("click", closeMailModal);
+$("mailModal").addEventListener("click", (event) => {
+  if (event.target === $("mailModal")) closeMailModal();
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeMailModal();
+});
 
 refresh();
 setInterval(refresh, 5000);
