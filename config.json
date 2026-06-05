@@ -11,7 +11,7 @@
   "auto_send_after_daily_collect": true,
   "mail_monitor": {
     "enabled_on_start": true,
-    "interval_seconds": 300,
+    "interval_seconds": 60,
     "lookback_days": 14,
     "ignore_bounces_before": "",
     "default_folders": [

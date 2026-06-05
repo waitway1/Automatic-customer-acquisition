@@ -610,7 +610,12 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
         if monitor_running and item.get("status") == "等待检查" and not item.get("last_checked"):
             item["status"] = "检查中"
         messages = saved_messages.get(resolved["key"], []) if isinstance(saved_messages, dict) else []
-        item["messages"] = messages[:5] if isinstance(messages, list) else []
+        if isinstance(messages, list):
+            item["messages"] = messages[:5]
+            item["new_count"] = len(messages)
+        else:
+            item["messages"] = []
+            item["new_count"] = 0
         statuses.append(item)
     return statuses
 

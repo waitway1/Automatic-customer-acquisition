@@ -124,6 +124,7 @@ function renderMailAccounts(accounts) {
     const node = document.createElement("article");
     const statusClass = mailStatusClass(account.status);
     const messages = account.messages || [];
+    const newCount = Number.isFinite(account.new_count) ? account.new_count : messages.length;
     node.className = "mailCard";
     node.innerHTML = `
       <div class="cardTitle">
@@ -132,7 +133,7 @@ function renderMailAccounts(accounts) {
       </div>
       <p class="mailUser">${account.user || "未填写账号"}</p>
       <div class="mailStats">
-        <div><span>新邮件</span><strong>${account.checked || 0}</strong></div>
+        <div><span>新邮件</span><strong>${newCount}</strong></div>
         <div><span>意向</span><strong>${account.interested || 0}</strong></div>
       </div>
       <p class="subtle">${account.last_checked ? `最近检查 ${account.last_checked}` : "等待后台检查"}</p>
