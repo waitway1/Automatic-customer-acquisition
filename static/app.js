@@ -6,6 +6,8 @@ const state = {
   taskRunning: false,
   modalItem: null,
   modalOptions: {},
+  interventionSnapshotReady: false,
+  knownInterventionKeys: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -26,6 +28,65 @@ function textToHtml(value) {
 function shortText(value, length = 150) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > length ? `${text.slice(0, length)}...` : text;
+}
+
+function activeInterventionItems(items) {
+  return (items || []).filter((item) => item.status !== "已处理");
+}
+
+function interventionKey(item) {
+  return item.id || [item.from, item.subject, item.email, item.time].filter(Boolean).join("|");
+}
+
+async function requestInterventionNotificationPermission() {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission !== "default") return false;
+  try {
+    const permission = await Notification.requestPermission();
+    return permission === "granted";
+  } catch {
+    return false;
+  }
+}
+
+function notifyIntervention(item) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const key = interventionKey(item);
+  const detail = [item.from, item.subject, item.snippet || item.body].filter(Boolean).join(" ");
+  try {
+    new Notification("新的待人工跟进邮件", {
+      body: shortText(detail, 180),
+      tag: key ? `intervention-${key}` : "intervention-mail",
+      requireInteraction: true,
+    });
+  } catch {
+    // Browser notification support varies; keep the dashboard refresh working.
+  }
+}
+
+function syncInterventionNotifications(items) {
+  const activeItems = activeInterventionItems(items);
+  const activeKeys = new Set(activeItems.map(interventionKey).filter(Boolean));
+  if (!state.interventionSnapshotReady) {
+    state.knownInterventionKeys = activeKeys;
+    state.interventionSnapshotReady = true;
+    return;
+  }
+  activeItems
+    .filter((item) => {
+      const key = interventionKey(item);
+      return key && !state.knownInterventionKeys.has(key);
+    })
+    .forEach(notifyIntervention);
+  state.knownInterventionKeys = activeKeys;
+}
+
+function setupInterventionNotifications() {
+  requestInterventionNotificationPermission();
+  ["pointerdown", "keydown"].forEach((eventName) => {
+    window.addEventListener(eventName, requestInterventionNotificationPermission, { once: true });
+  });
 }
 
 async function api(path, options = {}) {
@@ -190,7 +251,7 @@ function renderMailAccounts(accounts) {
 function renderIntervention(items) {
   const list = $("interventionList");
   list.innerHTML = "";
-  const active = items.filter((item) => item.status !== "已处理");
+  const active = activeInterventionItems(items);
   $("clearInterventionBtn").disabled = !active.length;
   if (!active.length) {
     list.innerHTML = `<div class="empty">暂无需要人工跟进的客户。</div>`;
@@ -317,7 +378,8 @@ async function refresh() {
   const total = state.models.reduce((sum, model) => sum + (model.count || 0), 0);
   const unsent = state.models.reduce((sum, model) => sum + (model.unsent || 0), 0);
   const sent = state.models.reduce((sum, model) => sum + (model.sent || 0), 0);
-  const interventions = state.interventions.filter((item) => item.status !== "已处理").length;
+  syncInterventionNotifications(state.interventions);
+  const interventions = activeInterventionItems(state.interventions).length;
   $("totalCount").textContent = total;
   $("unsentCount").textContent = unsent;
   $("sentCount").textContent = sent;
@@ -368,7 +430,7 @@ async function resetModel(model) {
 }
 
 async function clearInterventions() {
-  const active = state.interventions.filter((item) => item.status !== "已处理").length;
+  const active = activeInterventionItems(state.interventions).length;
   if (!active) return;
   const ok = confirm(`确定清除 ${active} 封待人工跟进邮件吗？`);
   if (!ok) return;
@@ -405,5 +467,6 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeMailModal();
 });
 
+setupInterventionNotifications();
 refresh();
 setInterval(refresh, 5000);
