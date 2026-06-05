@@ -79,6 +79,47 @@ LEAD_SEARCH_SUFFIXES = (
     "aftermarket parts contact",
     "online shop contact",
 )
+INVALID_SHEET_TOKENS = (
+    "邮箱失效",
+    "失效邮箱",
+    "邮件失效",
+    "无效邮箱",
+    "失效",
+    "退信",
+    "退回",
+    "投递失败",
+    "invalid",
+    "bounce",
+    "bounced",
+    "undeliver",
+)
+FOLLOWUP_SHEET_TOKENS = (
+    "跟进",
+    "回复",
+    "已回复",
+    "客户回复",
+    "有意向",
+    "意向客户",
+    "待人工",
+    "待跟进",
+    "follow",
+    "followup",
+    "follow-up",
+    "reply",
+    "replies",
+    "interested",
+)
+FOLLOWUP_REPLY_TOKENS = (
+    "回复",
+    "已回复",
+    "客户回复",
+    "跟进回复",
+    "有意向",
+    "意向",
+    "reply",
+    "replies",
+    "interested",
+)
 BAD_EMAIL_PREFIXES = (
     "noreply@",
     "no-reply@",
@@ -664,6 +705,76 @@ def header_index(headers: list[Any], names: list[str]) -> int | None:
         if header and any(want and want in header for want in wanted):
             return index + 1
     return None
+
+
+def sheet_sample_text(sheet: Any, rows: int = 8, cols: int = 12) -> str:
+    values = [sheet.title]
+    for row in range(1, min(sheet.max_row, rows) + 1):
+        for col in range(1, min(sheet.max_column, cols) + 1):
+            value = normalize(sheet.cell(row, col).value)
+            if value:
+                values.append(value)
+    return "\n".join(values)
+
+
+def token_hits(text: str, tokens: tuple[str, ...]) -> int:
+    compacted = compact(text)
+    return sum(1 for token in tokens if compact(token) and compact(token) in compacted)
+
+
+def sheet_has_email_header(sheet: Any) -> bool:
+    return bool(header_index(headers_for_sheet(sheet), ["客户邮箱", "邮箱", "email", "mail"]))
+
+
+def resolve_destination_sheet_name(workbook: Any, source_sheet: Any, configured: str, default_name: str, kind: str) -> str:
+    if configured and configured in workbook.sheetnames:
+        return configured
+
+    best_name = ""
+    best_score = -999
+    for sheet in workbook.worksheets:
+        if sheet.title == source_sheet.title:
+            continue
+        text = sheet_sample_text(sheet)
+        name_text = sheet.title
+        header_text = "\n".join(normalize(value) for value in headers_for_sheet(sheet) if normalize(value))
+        invalid_hits = token_hits(text, INVALID_SHEET_TOKENS)
+        follow_hits = token_hits(text, FOLLOWUP_SHEET_TOKENS)
+        reply_header_hits = token_hits(header_text, FOLLOWUP_REPLY_TOKENS)
+        removed_hits = token_hits(name_text, ("removed", "删除", "移除", "清理"))
+        score = -100 if removed_hits else 0
+        if kind == "invalid":
+            score += token_hits(name_text, INVALID_SHEET_TOKENS) * 8 + invalid_hits * 3
+            score -= follow_hits * 2
+        else:
+            if token_hits(name_text, INVALID_SHEET_TOKENS):
+                score -= 100
+            score += reply_header_hits * 12
+            score += token_hits(name_text, FOLLOWUP_SHEET_TOKENS) * 8 + follow_hits * 3
+            score -= invalid_hits * (2 if reply_header_hits else 10)
+            if sheet_has_email_header(sheet):
+                score += 2
+            if sheet.max_row > 1:
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_name = sheet.title
+
+    if best_name and best_score > 0:
+        return best_name
+    return configured or default_name
+
+
+def field_aliases_for_model(model: dict[str, Any]) -> dict[str, list[str]]:
+    return {
+        "company": [model.get("company_header", ""), "客户名", "客户", "公司", "company", "name"],
+        "country": [model.get("country_header", ""), "客户国家", "国家", "country"],
+        "email": [model.get("email_header", ""), "客户邮箱", "邮箱", "email", "mail"],
+        "website": [model.get("website_header", ""), "客户网址", "网址", "网站", "website", "url"],
+        "first_time": [model.get("first_time_header", ""), "一次跟进时间", "first sent", "first_time"],
+        "second_time": [model.get("second_time_header", ""), "二次跟进时间", "second sent", "second_time"],
+        "third_time": [model.get("third_time_header", ""), "三次跟进时间", "third sent", "third_time"],
+    }
 
 
 def open_model_sheet(config: dict[str, Any], model_key: str, data_only: bool = False) -> tuple[Path, Any, Any, list[Any], dict[str, int]]:
@@ -1398,28 +1509,75 @@ def send_target_email_for_model(model_key: str, target_email: str, sender_profil
     return {"model": model_key, "label": model["label"], "email": target_email, "returncode": proc.returncode}
 
 
-def copy_row_to_invalid(workbook: Any, sheet: Any, row_number: int, invalid_name: str, label: str) -> None:
-    if invalid_name in workbook.sheetnames:
-        invalid_sheet = workbook[invalid_name]
+def copy_cell_value_and_style(source: Any, target: Any) -> None:
+    target.value = source.value
+    if source.has_style:
+        target._style = copy(source._style)
+    target.number_format = source.number_format
+
+
+def ensure_label_column(sheet: Any, headers: list[Any], names: list[str]) -> int:
+    label_col = header_index(headers, names)
+    if label_col:
+        return label_col
+    label_col = sheet.max_column + 1
+    sheet.cell(1, label_col).value = names[0]
+    return label_col
+
+
+def copy_row_to_destination(
+    workbook: Any,
+    source_sheet: Any,
+    row_number: int,
+    destination_name: str,
+    label: str,
+    model: dict[str, Any],
+    label_headers: list[str],
+    note: str = "",
+) -> None:
+    if destination_name in workbook.sheetnames:
+        destination = workbook[destination_name]
     else:
-        invalid_sheet = workbook.create_sheet(invalid_name)
-        for col in range(1, sheet.max_column + 1):
-            source = sheet.cell(1, col)
-            target = invalid_sheet.cell(1, col, source.value)
-            if source.has_style:
-                target._style = copy(source._style)
-            target.number_format = source.number_format
-        invalid_sheet.cell(1, sheet.max_column + 1).value = "标签"
-        for letter, dim in sheet.column_dimensions.items():
-            invalid_sheet.column_dimensions[letter].width = dim.width
-    dest = invalid_sheet.max_row + 1
-    for col in range(1, sheet.max_column + 1):
-        source = sheet.cell(row_number, col)
-        target = invalid_sheet.cell(dest, col, source.value)
-        if source.has_style:
-            target._style = copy(source._style)
-        target.number_format = source.number_format
-    invalid_sheet.cell(dest, sheet.max_column + 1).value = label
+        destination = workbook.create_sheet(destination_name)
+        for col in range(1, source_sheet.max_column + 1):
+            copy_cell_value_and_style(source_sheet.cell(1, col), destination.cell(1, col))
+        destination.cell(1, source_sheet.max_column + 1).value = label_headers[0]
+        for letter, dim in source_sheet.column_dimensions.items():
+            destination.column_dimensions[letter].width = dim.width
+
+    dest_row = destination.max_row + 1
+    source_headers = headers_for_sheet(source_sheet)
+    dest_headers = headers_for_sheet(destination)
+    aliases = field_aliases_for_model(model)
+    source_map = {field: header_index(source_headers, names) for field, names in aliases.items()}
+    dest_map = {field: header_index(dest_headers, names) for field, names in aliases.items()}
+    mapped_fields = [field for field in aliases if source_map.get(field) and dest_map.get(field)]
+
+    if mapped_fields:
+        for field in mapped_fields:
+            copy_cell_value_and_style(source_sheet.cell(row_number, source_map[field]), destination.cell(dest_row, dest_map[field]))
+    else:
+        for col in range(1, source_sheet.max_column + 1):
+            copy_cell_value_and_style(source_sheet.cell(row_number, col), destination.cell(dest_row, col))
+
+    dest_headers = headers_for_sheet(destination)
+    label_col = ensure_label_column(destination, dest_headers, label_headers + ["标签", "备注", "一次跟进回复", "回复"])
+    destination.cell(dest_row, label_col).value = label
+
+    dest_headers = headers_for_sheet(destination)
+    source_sheet_col = header_index(dest_headers, ["来源Sheet", "source sheet", "source_sheet"])
+    if source_sheet_col:
+        destination.cell(dest_row, source_sheet_col).value = source_sheet.title
+    source_row_col = header_index(dest_headers, ["原行号", "source row", "source_row"])
+    if source_row_col:
+        destination.cell(dest_row, source_row_col).value = row_number
+    note_col = header_index(dest_headers, ["备注", "note", "notes"])
+    if note and note_col:
+        destination.cell(dest_row, note_col).value = note
+
+
+def copy_row_to_invalid(workbook: Any, sheet: Any, row_number: int, invalid_name: str, label: str, model: dict[str, Any]) -> None:
+    copy_row_to_destination(workbook, sheet, row_number, invalid_name, label, model, ["标签", "失效原因", "退信原因"])
 
 
 def move_invalid_email(config: dict[str, Any], model_key: str, email_value: str, label: str = "退信") -> bool:
@@ -1430,10 +1588,11 @@ def move_invalid_email(config: dict[str, Any], model_key: str, email_value: str,
         email_col = mapping.get("email")
         if not email_col:
             return False
+        destination_name = resolve_destination_sheet_name(workbook, sheet, model.get("invalid_sheet", "邮箱失效"), "邮箱失效", "invalid")
         for row_number in range(sheet.max_row, 1, -1):
             value = normalize(sheet.cell(row_number, email_col).value).lower()
             if value == email_value.lower():
-                copy_row_to_invalid(workbook, sheet, row_number, model.get("invalid_sheet", "邮箱失效"), label)
+                copy_row_to_invalid(workbook, sheet, row_number, destination_name, label, model)
                 sheet.delete_rows(row_number, 1)
                 moved = True
         if moved:
@@ -1455,12 +1614,57 @@ def mark_final_invalid_email(config: dict[str, Any], model_key: str, email_value
     return moved
 
 
+def move_followup_email(config: dict[str, Any], model_key: str, email_value: str, label: str = "已回复客户", note: str = "") -> bool:
+    model = config["models"][model_key]
+    path, workbook, sheet, _headers, mapping = open_model_sheet(config, model_key, data_only=False)
+    moved = False
+    try:
+        email_col = mapping.get("email")
+        if not email_col:
+            return False
+        destination_name = resolve_destination_sheet_name(workbook, sheet, model.get("followup_sheet", ""), "跟进", "followup")
+        for row_number in range(sheet.max_row, 1, -1):
+            value = normalize(sheet.cell(row_number, email_col).value).lower()
+            if value == email_value.lower():
+                copy_row_to_destination(
+                    workbook,
+                    sheet,
+                    row_number,
+                    destination_name,
+                    label,
+                    model,
+                    ["标签", "一次跟进回复", "回复", "备注"],
+                    note=note,
+                )
+                sheet.delete_rows(row_number, 1)
+                moved = True
+        if moved:
+            workbook.save(path)
+            append_log(f"已移入跟进sheet: {model['label']} {email_value} -> {destination_name}")
+        return moved
+    finally:
+        workbook.close()
+
+
 def find_model_for_email(config: dict[str, Any], email_value: str) -> str | None:
     target = email_value.lower()
     for key in config.get("models", {}):
         if any(row.get("email", "").lower() == target for row in read_model_rows(config, key)):
             return key
     return None
+
+
+def find_model_email_for_candidates(config: dict[str, Any], emails: list[str]) -> tuple[str | None, str | None]:
+    seen = []
+    for email_value in emails:
+        normalized = normalize(email_value).lower()
+        if normalized and normalized not in seen:
+            seen.append(normalized)
+    for email_value in seen:
+        model_key = find_model_for_email(config, email_value)
+        if model_key:
+            return model_key, email_value
+    return None, None
 
 
 def find_unsent_alternative(config: dict[str, Any], model_key: str, exclude_email: str) -> str | None:
@@ -1882,13 +2086,19 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
         return 0, 0
     if is_interested_message(config, subject, from_addr, text):
         emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
+        model_key, customer_email = find_model_email_for_candidates(config, emails)
+        moved_to_followup = False
+        if model_key and customer_email:
+            moved_to_followup = move_followup_email(config, model_key, customer_email, "已回复客户", "检测到客户意向回复")
         body = leading_message_text(text)
         add_intervention(
             {
                 "time": now_iso(),
                 "from": from_addr,
                 "subject": subject,
-                "email": emails[0] if emails else "",
+                "email": customer_email or (emails[0] if emails else ""),
+                "model": model_key or "",
+                "moved_to_followup": moved_to_followup,
                 "snippet": re.sub(r"\s+", " ", body)[:240],
                 "body": body[:12000],
                 "status": "待处理",
