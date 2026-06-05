@@ -496,22 +496,27 @@ input {
 }
 
 .modalOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgba(15, 27, 34, 0.42);
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(720px, calc(100vh - 36px));
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  overflow: visible;
 }
 
+.modalOverlay:not([open]),
 .modalOverlay[hidden] {
   display: none;
 }
 
+.modalOverlay::backdrop {
+  background: rgba(15, 27, 34, 0.44);
+}
+
 .modalPanel {
-  width: min(820px, 100%);
-  max-height: min(760px, 88vh);
+  width: 100%;
+  max-height: min(720px, calc(100vh - 36px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   background: var(--panel);

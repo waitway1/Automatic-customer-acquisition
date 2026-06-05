@@ -204,13 +204,18 @@ function renderIntervention(items) {
 
 async function openMailModal(item, options = {}) {
   const markRead = options.type !== "mailbox" && options.markRead !== false;
+  const modal = $("mailModal");
   state.modalItem = item;
   state.modalOptions = options;
   $("modalSubject").textContent = item.subject || "无主题";
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
   $("markReadBtn").hidden = options.type !== "mailbox" || Boolean(item.read_at);
-  $("mailModal").hidden = false;
+  if (typeof modal.showModal === "function" && !modal.open) {
+    modal.showModal();
+  } else {
+    modal.hidden = false;
+  }
   if (markRead && !item.read_at && item.id) {
     await api("/api/intervention/read", {
       method: "POST",
@@ -223,7 +228,12 @@ async function openMailModal(item, options = {}) {
 }
 
 function closeMailModal() {
-  $("mailModal").hidden = true;
+  const modal = $("mailModal");
+  if (typeof modal.close === "function" && modal.open) {
+    modal.close();
+  } else {
+    modal.hidden = true;
+  }
   state.modalItem = null;
   state.modalOptions = {};
   $("markReadBtn").hidden = true;
@@ -337,6 +347,12 @@ $("closeModalBtn").addEventListener("click", closeMailModal);
 $("mailModal").addEventListener("click", (event) => {
   if (event.target === $("mailModal")) closeMailModal();
 });
+if (typeof $("mailModal").addEventListener === "function") {
+  $("mailModal").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeMailModal();
+  });
+}
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeMailModal();
 });
