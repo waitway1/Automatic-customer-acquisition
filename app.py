@@ -37,6 +37,7 @@ TASKS_PATH = RUNTIME_DIR / "tasks.json"
 INTERVENTION_PATH = RUNTIME_DIR / "intervention.json"
 BOUNCE_STATE_PATH = RUNTIME_DIR / "bounce_state.json"
 MAIL_STATUS_PATH = RUNTIME_DIR / "mail_status.json"
+DAILY_INVALID_PATH = RUNTIME_DIR / "daily_invalid.json"
 GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
 ASSET_DIR = ROOT / "work" / "assets"
 
@@ -460,6 +461,50 @@ def count_invalid_sheet(config: dict[str, Any], model_key: str) -> int:
         workbook.close()
 
 
+def today_invalid_entries() -> list[dict[str, Any]]:
+    data = read_json(DAILY_INVALID_PATH, {})
+    today = date.today().isoformat()
+    if isinstance(data, dict):
+        entries = data.get(today, [])
+    elif isinstance(data, list):
+        entries = [item for item in data if item.get("date") == today]
+    else:
+        entries = []
+    return [item for item in entries if isinstance(item, dict)]
+
+
+def count_today_invalid(model_key: str) -> int:
+    return sum(1 for item in today_invalid_entries() if item.get("model") == model_key)
+
+
+def record_today_invalid(model_key: str, email_value: str, sender_profile: str, reason: str) -> None:
+    today = date.today().isoformat()
+    data = read_json(DAILY_INVALID_PATH, {})
+    if not isinstance(data, dict):
+        data = {}
+    entries = data.get(today, [])
+    if not isinstance(entries, list):
+        entries = []
+    signature = (model_key, email_value.lower())
+    for item in entries:
+        if (item.get("model"), normalize(item.get("email")).lower()) == signature:
+            item.update({"sender": sender_profile, "reason": reason, "updated_at": now_iso()})
+            break
+    else:
+        entries.append(
+            {
+                "date": today,
+                "time": now_iso(),
+                "model": model_key,
+                "email": email_value.lower(),
+                "sender": sender_profile,
+                "reason": reason[:500],
+            }
+        )
+    data = {today: entries}
+    write_json(DAILY_INVALID_PATH, data)
+
+
 def dashboard_status() -> dict[str, Any]:
     config = load_config()
     models = []
@@ -474,7 +519,7 @@ def dashboard_status() -> dict[str, Any]:
                     "count": len(rows),
                     "sent": sent,
                     "unsent": len(rows) - sent,
-                    "invalid": count_invalid_sheet(config, key),
+                    "invalid": count_today_invalid(key),
                     "last_updated": datetime.fromtimestamp(model_workbook_path(config, key).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                     if model_workbook_path(config, key).exists()
                     else "",
@@ -746,6 +791,30 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
         workbook.close()
 
 
+def send_with_fallback_for_target(model_key: str, target_email: str, primary_profile: str | None, context: str) -> dict[str, Any]:
+    config = load_config()
+    primary = normalize(primary_profile) or normalize(config.get("sender_profile"))
+    retry = normalize(config.get("retry_sender_profile"))
+    attempts: list[dict[str, Any]] = []
+    try:
+        result = send_target_email_for_model(model_key, target_email, primary, log_label=context)
+        attempts.append({"sender": primary, "ok": True})
+        return {"ok": True, "result": result, "attempts": attempts}
+    except Exception as first_exc:
+        attempts.append({"sender": primary, "ok": False, "error": str(first_exc)})
+        if not retry or retry == primary:
+            record_today_invalid(model_key, target_email, primary, str(first_exc))
+            return {"ok": False, "attempts": attempts}
+        try:
+            result = send_target_email_for_model(model_key, target_email, retry, log_label=f"{context}备用发送")
+            attempts.append({"sender": retry, "ok": True})
+            return {"ok": True, "result": result, "attempts": attempts}
+        except Exception as second_exc:
+            attempts.append({"sender": retry, "ok": False, "error": str(second_exc)})
+            record_today_invalid(model_key, target_email, retry, str(second_exc))
+            return {"ok": False, "attempts": attempts}
+
+
 def daily_collect(limit_per_model: int) -> dict[str, Any]:
     config = load_config()
     results = []
@@ -756,10 +825,11 @@ def daily_collect(limit_per_model: int) -> dict[str, Any]:
         result["auto_sent"] = []
         if auto_send:
             for email_value in result.get("written_emails", []):
-                try:
-                    result["auto_sent"].append(send_target_email_for_model(key, email_value, daily_sender))
-                except Exception as exc:
-                    result.setdefault("auto_send_failed", []).append({"email": email_value, "error": str(exc)})
+                send_result = send_with_fallback_for_target(key, email_value, daily_sender, "每日获客发送")
+                if send_result.get("ok"):
+                    result["auto_sent"].append(send_result)
+                else:
+                    result.setdefault("auto_send_failed", []).append({"email": email_value, **send_result})
         results.append(result)
     return {"daily_limit": limit_per_model, "results": results}
 
@@ -868,24 +938,31 @@ def ensure_fallback_logo() -> Path:
 def send_for_model(model_key: str, limit: int, sender_profile: str | None = None) -> dict[str, Any]:
     config = load_config()
     model = config["models"][model_key]
-    package = Path(config["outreach_package"])
-    cfg_path = ensure_outreach_config(config, model_key, sender_profile)
-    python_exe = config.get("python", "python")
-    script = package / "scripts" / "send_portable_campaign.py"
-    cmd = [python_exe, str(script), "--config", str(cfg_path), "--limit", str(limit)]
-    append_log(f"开始发送: {model['label']} limit={limit}")
-    proc = subprocess.run(cmd, cwd=str(package / "scripts"), capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if proc.stdout:
-        append_log(proc.stdout.strip()[-3000:])
-    if proc.stderr:
-        append_log("发送脚本错误输出: " + proc.stderr.strip()[-3000:])
-    if proc.returncode != 0:
-        raise RuntimeError(f"发送失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
-    append_log(f"完成发送: {model['label']} limit={limit}")
-    return {"model": model_key, "label": model["label"], "limit": limit, "sender": sender_profile or config.get("sender_profile"), "returncode": proc.returncode}
+    emails = unsent_emails_for_model(config, model_key, limit)
+    append_log(f"开始发送: {model['label']} limit={limit} targets={len(emails)}")
+    results = []
+    sent = 0
+    failed = 0
+    for email_value in emails:
+        result = send_with_fallback_for_target(model_key, email_value, sender_profile, "手动发送")
+        results.append({"email": email_value, **result})
+        if result.get("ok"):
+            sent += 1
+        else:
+            failed += 1
+    append_log(f"完成发送: {model['label']} sent={sent} failed={failed}")
+    return {
+        "model": model_key,
+        "label": model["label"],
+        "limit": limit,
+        "sender": sender_profile or config.get("sender_profile"),
+        "sent": sent,
+        "failed": failed,
+        "results": results,
+    }
 
 
-def send_target_email_for_model(model_key: str, target_email: str, sender_profile: str | None = None) -> dict[str, Any]:
+def send_target_email_for_model(model_key: str, target_email: str, sender_profile: str | None = None, log_label: str = "退信重发") -> dict[str, Any]:
     config = load_config()
     model = config["models"][model_key]
     package = Path(config["outreach_package"])
@@ -904,14 +981,14 @@ def send_target_email_for_model(model_key: str, target_email: str, sender_profil
         target_email,
         "--force-targets",
     ]
-    append_log(f"退信重发: {model['label']} {target_email} sender={retry_profile}")
+    append_log(f"{log_label}: {model['label']} {target_email} sender={retry_profile}")
     proc = subprocess.run(cmd, cwd=str(package / "scripts"), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.stdout:
         append_log(proc.stdout.strip()[-3000:])
     if proc.stderr:
-        append_log("退信重发错误输出: " + proc.stderr.strip()[-3000:])
+        append_log(f"{log_label}错误输出: " + proc.stderr.strip()[-3000:])
     if proc.returncode != 0:
-        raise RuntimeError(f"退信重发失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
+        raise RuntimeError(f"{log_label}失败，退出码 {proc.returncode}: {proc.stderr[-1000:]}")
     return {"model": model_key, "label": model["label"], "email": target_email, "returncode": proc.returncode}
 
 
@@ -978,14 +1055,27 @@ def find_unsent_alternative(config: dict[str, Any], model_key: str, exclude_emai
     return None
 
 
+def unsent_emails_for_model(config: dict[str, Any], model_key: str, limit: int) -> list[str]:
+    emails = []
+    for row in read_model_rows(config, model_key):
+        if row.get("first_time"):
+            continue
+        email_value = normalize(row.get("email")).lower()
+        if email_value and email_value not in emails:
+            emails.append(email_value)
+        if len(emails) >= limit:
+            break
+    return emails
+
+
 def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: str) -> dict[str, Any]:
     state = read_json(BOUNCE_STATE_PATH, {})
     key = bounced_email.lower()
     if state.get(key, {}).get("retried"):
-        moved = move_invalid_email(config, model_key, bounced_email, "退信二次失败")
         state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso()}
         write_json(BOUNCE_STATE_PATH, state)
-        return {"action": "moved_invalid", "moved": moved}
+        append_log(f"退信二次失败忽略: {bounced_email}")
+        return {"action": "ignored_retried_bounce"}
     send_result = send_target_email_for_model(model_key, bounced_email)
     state[key] = {"retried": True, "failed_final": False, "updated_at": now_iso()}
     write_json(BOUNCE_STATE_PATH, state)

@@ -97,7 +97,7 @@ function renderModels(models) {
       <div class="metricStrip">
         <div><span>已发</span><strong>${model.sent || 0}</strong></div>
         <div><span>未发</span><strong>${model.unsent || 0}</strong></div>
-        <div><span>失效</span><strong>${model.invalid || 0}</strong></div>
+        <div><span>今日失效</span><strong>${model.invalid || 0}</strong></div>
       </div>
       <p class="subtle">${model.last_updated ? `更新时间 ${model.last_updated}` : ""}</p>
     `;

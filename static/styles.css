@@ -115,6 +115,22 @@ button:disabled {
   font-size: 13px;
 }
 
+.danger {
+  background: #b63b2e;
+  color: #fff;
+}
+
+.danger:hover {
+  background: #923025;
+}
+
+.danger:disabled {
+  border: 1px solid #d99a91;
+  background: #fff4f2;
+  color: #a64236;
+  opacity: 1;
+}
+
 .actions {
   display: flex;
   gap: 10px;
