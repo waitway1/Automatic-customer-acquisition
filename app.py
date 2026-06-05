@@ -572,6 +572,42 @@ def model_workbook_path(config: dict[str, Any], model_key: str) -> Path:
     return sorted(candidates, key=lambda item: item.stat().st_mtime, reverse=True)[0]
 
 
+def model_image_paths(config: dict[str, Any], model: dict[str, Any]) -> tuple[list[Path], list[str]]:
+    values = (
+        model.get("images")
+        or model.get("first_images")
+        or model.get("image_paths")
+        or model.get("image_path")
+        or model.get("image")
+        or []
+    )
+    if isinstance(values, str):
+        values = [values]
+    base_dirs = [
+        Path(value)
+        for value in [
+            config.get("email_picture_dir", ""),
+            config.get("image_root", ""),
+            config.get("outreach_package", ""),
+        ]
+        if value
+    ]
+    resolved: list[Path] = []
+    missing: list[str] = []
+    for value in values:
+        text = normalize(value)
+        if not text:
+            continue
+        path = Path(text)
+        candidates = [path] if path.is_absolute() else [base / path for base in base_dirs]
+        found = next((candidate for candidate in candidates if candidate.exists()), None)
+        if found:
+            resolved.append(found)
+        else:
+            missing.append(text)
+    return resolved, missing
+
+
 def headers_for_sheet(sheet: Any) -> list[Any]:
     return [sheet.cell(1, col).value for col in range(1, sheet.max_column + 1)]
 
@@ -1060,6 +1096,11 @@ def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profil
     GENERATED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     package = Path(config["outreach_package"])
     logo_file = ensure_fallback_logo()
+    image_paths, missing_images = model_image_paths(config, model)
+    if missing_images:
+        raise RuntimeError(f"{model['label']} 邮件图片不存在: {', '.join(missing_images)}")
+    if not image_paths:
+        raise RuntimeError(f"{model['label']} 未配置邮件图片，已停止发送，避免发出无图邮件")
     cfg = {
         "campaign": {
             "name": f"{model_key}_first_touch",
@@ -1094,7 +1135,7 @@ def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profil
         },
         "assets": {
             "logo_path": str(logo_file).replace("\\", "/"),
-            "first_images": [],
+            "first_images": [str(path).replace("\\", "/") for path in image_paths],
         },
         "message": {
             "product_label": model.get("message", {}).get("product_label", model["label"] + " accessories"),
