@@ -59,17 +59,18 @@ function syncSendLimit() {
   const model = selectedModel();
   const max = Math.max(0, Number(model?.unsent || 0));
   input.max = String(max);
-  input.min = max > 0 ? "1" : "0";
+  input.min = "0";
   if (max <= 0) {
     input.value = "0";
     sendButton.disabled = true;
     sendButton.title = "该车型没有未发客户";
     return;
   }
-  const current = Math.floor(Number(input.value || 1));
-  input.value = String(Math.min(max, Math.max(1, current)));
-  sendButton.disabled = state.taskRunning;
-  sendButton.title = `最多发送 ${max} 封`;
+  const current = Math.floor(Number(input.value || 0));
+  const nextValue = Math.min(max, Math.max(0, current));
+  input.value = String(nextValue);
+  sendButton.disabled = state.taskRunning || nextValue <= 0;
+  sendButton.title = nextValue <= 0 ? "发送数量为 0" : `最多发送 ${max} 封`;
 }
 
 function fillSelects(models, senders) {

@@ -1606,10 +1606,12 @@ class ApiHandler(SimpleHTTPRequestHandler):
             if self.path == "/api/send":
                 body = self.read_body()
                 model_key = body.get("model")
-                limit = max(1, min(500, int(body.get("limit", 1))))
+                limit = max(0, min(500, int(body.get("limit", 0))))
                 sender_profile = normalize(body.get("sender"))
                 if model_key not in load_config().get("models", {}):
                     raise RuntimeError("未知车型")
+                if limit <= 0:
+                    raise RuntimeError("发送数量必须大于 0")
                 self.send_json(run_task(f"send_{model_key}", send_for_model, model_key, limit, sender_profile))
                 return
             if self.path == "/api/reset-model":
