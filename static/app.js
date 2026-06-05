@@ -210,11 +210,23 @@ async function openMailModal(item, options = {}) {
   $("modalSubject").textContent = item.subject || "无主题";
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
-  $("markReadBtn").hidden = options.type !== "mailbox" || Boolean(item.read_at);
+  $("markReadBtn").hidden = options.type !== "mailbox";
   if (typeof modal.showModal === "function" && !modal.open) {
     modal.showModal();
   } else {
     modal.hidden = false;
+  }
+  if (options.type === "mailbox" && !item.read_at && item.id) {
+    await api("/api/mail/read", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
+    });
+    item.read_at = new Date().toISOString();
+    const account = state.mailAccounts.find((entry) => entry.key === options.accountKey);
+    const current = (account?.messages || []).find((entry) => entry.id === item.id);
+    if (current) current.read_at = item.read_at;
+    if (account) account.new_count = Math.max(0, Number(account.new_count || 0) - 1);
+    renderMailAccounts(state.mailAccounts);
   }
   if (markRead && !item.read_at && item.id) {
     await api("/api/intervention/read", {
@@ -242,13 +254,17 @@ function closeMailModal() {
 async function markCurrentMailRead() {
   const item = state.modalItem;
   const options = state.modalOptions || {};
-  if (!item || options.type !== "mailbox" || item.read_at) return;
-  await api("/api/mail/read", {
+  if (!item || options.type !== "mailbox") return;
+  await api("/api/mail/remove", {
     method: "POST",
     body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
   });
-  item.read_at = new Date().toISOString();
+  const account = state.mailAccounts.find((entry) => entry.key === options.accountKey);
+  if (account) {
+    account.messages = (account.messages || []).filter((entry) => entry.id !== item.id);
+  }
   closeMailModal();
+  renderMailAccounts(state.mailAccounts);
   refresh();
 }
 

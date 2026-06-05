@@ -1307,6 +1307,23 @@ def mark_mail_message_read(account_key: str, message_id: str) -> bool:
     return False
 
 
+def remove_mail_message(account_key: str, message_id: str) -> bool:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return False
+    keys = [account_key] if account_key else list(messages.keys())
+    for key in keys:
+        account_messages = messages.get(key, [])
+        if not isinstance(account_messages, list):
+            continue
+        filtered = [item for item in account_messages if item.get("id") != message_id]
+        if len(filtered) != len(account_messages):
+            messages[key] = filtered
+            write_json(MAIL_MESSAGES_PATH, messages)
+            return True
+    return False
+
+
 def poll_mail_once() -> dict[str, Any]:
     config = load_config()
     mail_cfg = config.get("mail_monitor", {})
@@ -1616,6 +1633,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
                     raise RuntimeError("缺少邮件ID")
                 updated = mark_mail_message_read(normalize(body.get("account_key")), message_id)
                 self.send_json({"ok": True, "updated": updated})
+                return
+            if self.path == "/api/mail/remove":
+                body = self.read_body()
+                message_id = normalize(body.get("id"))
+                if not message_id:
+                    raise RuntimeError("缺少邮件ID")
+                removed = remove_mail_message(normalize(body.get("account_key")), message_id)
+                self.send_json({"ok": True, "removed": removed})
                 return
             if self.path == "/api/intervention/close":
                 body = self.read_body()
