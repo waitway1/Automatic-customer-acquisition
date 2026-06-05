@@ -2,6 +2,7 @@ const state = {
   models: [],
   senders: [],
   interventions: [],
+  mailAccounts: [],
   taskRunning: false,
   modalItem: null,
   modalOptions: {},
@@ -145,9 +146,9 @@ function renderMailAccounts(accounts) {
           ? `<div class="mailMessageList">${messages
               .map(
                 (message) => `
-                  <button class="mailPreview mailInboxPreview ${message.read_at ? "read" : "unread"}" data-mail-id="${escapeHtml(message.id)}" type="button">
+                  <button class="mailPreview mailInboxPreview ${message.read_at ? "read" : "unread"}" data-account-key="${escapeHtml(account.key)}" data-mail-id="${escapeHtml(message.id)}" type="button">
                     <span class="unreadDot" aria-hidden="true"></span>
-                    <span>${escapeHtml(message.from || "")}</span>
+                    <span class="mailPreviewFrom">${escapeHtml(message.from || "")}</span>
                     <strong>${escapeHtml(shortText(message.subject || "无主题", 80))}</strong>
                     <em>${escapeHtml(shortText(message.snippet || message.body || "", 120))}</em>
                   </button>
@@ -157,12 +158,6 @@ function renderMailAccounts(accounts) {
           : ""
       }
     `;
-    node.querySelectorAll("[data-mail-id]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const message = messages.find((item) => item.id === button.dataset.mailId);
-        if (message) openMailModal(message, { type: "mailbox", accountKey: account.key });
-      });
-    });
     grid.appendChild(node);
   });
 }
@@ -266,6 +261,7 @@ async function refresh() {
   state.models = data.models || [];
   state.senders = data.senders || [];
   state.interventions = data.intervention || [];
+  state.mailAccounts = data.mail_accounts || [];
   $("clock").textContent = `最后刷新 ${data.now}`;
   const total = state.models.reduce((sum, model) => sum + (model.count || 0), 0);
   const unsent = state.models.reduce((sum, model) => sum + (model.unsent || 0), 0);
@@ -277,7 +273,7 @@ async function refresh() {
   $("interventionCount").textContent = interventions;
   fillSelects(state.models, state.senders);
   renderModels(state.models);
-  renderMailAccounts(data.mail_accounts || []);
+  renderMailAccounts(state.mailAccounts);
   renderIntervention(state.interventions);
   renderTask(data.task);
 }
@@ -328,6 +324,14 @@ $("refreshBtn").addEventListener("click", refresh);
 $("dailyBtn").addEventListener("click", startDaily);
 $("sendBtn").addEventListener("click", sendMail);
 $("clearInterventionBtn").addEventListener("click", clearInterventions);
+$("mailGrid").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-mail-id]");
+  if (!button || !$("mailGrid").contains(button)) return;
+  const accountKey = button.dataset.accountKey || "";
+  const account = state.mailAccounts.find((item) => item.key === accountKey);
+  const message = (account?.messages || []).find((item) => item.id === button.dataset.mailId);
+  if (message) openMailModal(message, { type: "mailbox", accountKey });
+});
 $("markReadBtn").addEventListener("click", markCurrentMailRead);
 $("closeModalBtn").addEventListener("click", closeMailModal);
 $("mailModal").addEventListener("click", (event) => {

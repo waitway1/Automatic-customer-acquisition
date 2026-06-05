@@ -335,31 +335,42 @@ input {
 
 .mailMessageList {
   display: grid;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 10px;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--line);
 }
 
 .mailInboxPreview {
   position: relative;
   grid-template-columns: 10px minmax(0, 1fr);
-  padding: 9px;
-  border: 1px solid var(--line);
+  gap: 1px 7px;
+  align-items: center;
+  min-height: 0;
+  padding: 7px 9px;
+  border: 1px solid #dce2e5;
   border-radius: 7px;
-  background: var(--panel-2);
+  background: #f1f3f4;
+  color: var(--muted);
+  text-align: left;
 }
 
 .mailInboxPreview span:not(.unreadDot),
 .mailInboxPreview strong,
 .mailInboxPreview em {
   grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mailInboxPreview .unreadDot {
   grid-column: 1;
   grid-row: 1 / span 3;
-  margin-top: 5px;
+  align-self: center;
+  margin-top: 0;
+  opacity: 1;
 }
 
 .mailInboxPreview.read .unreadDot {
@@ -367,13 +378,29 @@ input {
 }
 
 .mailInboxPreview:hover {
-  background: #edf4f2;
+  background: #e8ecef;
 }
 
 .mailInboxPreview em {
   color: var(--muted);
   font-style: normal;
   overflow-wrap: anywhere;
+}
+
+.mailInboxPreview .mailPreviewFrom {
+  color: #58666f;
+  font-size: 12px;
+}
+
+.mailInboxPreview strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.mailInboxPreview em {
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .errorText {
@@ -435,6 +462,21 @@ input {
 
 .mailPreview:hover {
   background: transparent;
+}
+
+.mailPreview.mailInboxPreview {
+  gap: 1px 7px;
+  min-height: 0;
+  padding: 6px 8px;
+  border: 1px solid #dce2e5;
+  border-radius: 7px;
+  background: #f1f3f4;
+  color: var(--muted);
+  text-align: left;
+}
+
+.mailPreview.mailInboxPreview:hover {
+  background: #e8ecef;
 }
 
 .mailPreview span,
