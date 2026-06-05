@@ -267,7 +267,6 @@ function renderIntervention(items) {
           <span class="unreadDot" aria-hidden="true"></span>
           <h3>${escapeHtml(item.subject || "无主题")}</h3>
         </div>
-        <button class="ghost" data-close="${escapeHtml(itemId)}">完成</button>
       </div>
       <button class="mailPreview" data-open="${escapeHtml(itemId)}" type="button">
         <span>${escapeHtml(item.from || "")}</span>
@@ -275,53 +274,55 @@ function renderIntervention(items) {
       </button>
       <p class="subtle">${escapeHtml(item.time || "")}</p>
     `;
-    node.querySelector("[data-close]").addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await api("/api/intervention/close", {
-        method: "POST",
-        body: JSON.stringify({ id: itemId }),
-      });
-      refresh();
-    });
-    node.querySelector("[data-open]").addEventListener("click", () => openMailModal(item));
+    node.querySelector("[data-open]").addEventListener("click", () => openMailModal(item, { type: "intervention" }));
     list.appendChild(node);
   });
 }
 
+function mailMatchText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function localMailMatchesIntervention(message, intervention) {
+  const targetFrom = mailMatchText(intervention.from);
+  const targetSubject = mailMatchText(intervention.subject);
+  const targetEmail = mailMatchText(intervention.email);
+  const targetBody = mailMatchText(intervention.snippet || intervention.body);
+  const messageFrom = mailMatchText(message.from);
+  const messageSubject = mailMatchText(message.subject);
+  const messageBody = mailMatchText(message.snippet || message.body);
+  const fromMatches = (targetFrom && messageFrom === targetFrom) || (targetEmail && messageFrom.includes(targetEmail));
+  const subjectMatches = targetSubject && messageSubject === targetSubject;
+  const bodyMatches =
+    targetBody && messageBody && (messageBody.includes(targetBody.slice(0, 120)) || targetBody.includes(messageBody.slice(0, 120)));
+  return subjectMatches && (fromMatches || bodyMatches);
+}
+
+function removeLocalMailboxMessages(records = [], fallbackIntervention = null) {
+  const recordIds = new Set(records.map((record) => `${record.account_key || ""}:${record.id || ""}`));
+  state.mailAccounts.forEach((account) => {
+    const before = account.messages || [];
+    account.messages = before.filter((message) => {
+      const explicit = recordIds.has(`${account.key || ""}:${message.id || ""}`);
+      const fallback = fallbackIntervention && localMailMatchesIntervention(message, fallbackIntervention);
+      return !explicit && !fallback;
+    });
+    account.new_count = account.messages.filter((message) => !message.read_at).length;
+  });
+}
+
 async function openMailModal(item, options = {}) {
-  const markRead = options.type !== "mailbox" && options.markRead !== false;
   const modal = $("mailModal");
   state.modalItem = item;
   state.modalOptions = options;
   $("modalSubject").textContent = item.subject || "无主题";
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
-  $("markReadBtn").hidden = options.type !== "mailbox";
+  $("markReadBtn").hidden = !["mailbox", "intervention"].includes(options.type);
   if (typeof modal.showModal === "function" && !modal.open) {
     modal.showModal();
   } else {
     modal.hidden = false;
-  }
-  if (options.type === "mailbox" && !item.read_at && item.id) {
-    await api("/api/mail/read", {
-      method: "POST",
-      body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
-    });
-    item.read_at = new Date().toISOString();
-    const account = state.mailAccounts.find((entry) => entry.key === options.accountKey);
-    const current = (account?.messages || []).find((entry) => entry.id === item.id);
-    if (current) current.read_at = item.read_at;
-    if (account) account.new_count = Math.max(0, Number(account.new_count || 0) - 1);
-    renderMailAccounts(state.mailAccounts);
-  }
-  if (markRead && !item.read_at && item.id) {
-    await api("/api/intervention/read", {
-      method: "POST",
-      body: JSON.stringify({ id: item.id }),
-    });
-    const current = state.interventions.find((entry) => entry.id === item.id);
-    if (current) current.read_at = new Date().toISOString();
-    renderIntervention(state.interventions);
   }
 }
 
@@ -340,18 +341,34 @@ function closeMailModal() {
 async function markCurrentMailRead() {
   const item = state.modalItem;
   const options = state.modalOptions || {};
-  if (!item || options.type !== "mailbox") return;
-  await api("/api/mail/remove", {
-    method: "POST",
-    body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
-  });
-  const account = state.mailAccounts.find((entry) => entry.key === options.accountKey);
-  if (account) {
-    account.messages = (account.messages || []).filter((entry) => entry.id !== item.id);
+  if (!item) return;
+  if (options.type === "mailbox") {
+    await api("/api/mail/remove", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
+    });
+    removeLocalMailboxMessages([{ account_key: options.accountKey || "", id: item.id }]);
+    closeMailModal();
+    renderMailAccounts(state.mailAccounts);
+    refresh();
+    return;
   }
-  closeMailModal();
-  renderMailAccounts(state.mailAccounts);
-  refresh();
+  if (options.type === "intervention") {
+    const result = await api("/api/intervention/close", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    const current = state.interventions.find((entry) => entry.id === item.id);
+    if (current) {
+      current.status = "已处理";
+      current.handled_at = new Date().toISOString();
+    }
+    removeLocalMailboxMessages(result.removed_mail_messages || [], item);
+    closeMailModal();
+    renderIntervention(state.interventions);
+    renderMailAccounts(state.mailAccounts);
+    refresh();
+  }
 }
 
 function renderTask(task) {

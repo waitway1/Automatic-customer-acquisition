@@ -1507,6 +1507,46 @@ def remove_mail_message(account_key: str, message_id: str) -> bool:
     return False
 
 
+def mail_match_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", normalize(value)).strip().lower()
+
+
+def remove_matching_mail_messages(intervention: dict[str, Any]) -> list[dict[str, str]]:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return []
+    target_from = mail_match_text(intervention.get("from"))
+    target_subject = mail_match_text(intervention.get("subject"))
+    target_email = mail_match_text(intervention.get("email"))
+    target_body = mail_match_text(intervention.get("snippet") or intervention.get("body"))
+    removed: list[dict[str, str]] = []
+    changed = False
+    for account_key, account_messages in list(messages.items()):
+        if not isinstance(account_messages, list):
+            continue
+        kept = []
+        for item in account_messages:
+            item_from = mail_match_text(item.get("from"))
+            item_subject = mail_match_text(item.get("subject"))
+            item_body = mail_match_text(item.get("snippet") or item.get("body"))
+            from_matches = bool(target_from and item_from == target_from) or bool(target_email and target_email in item_from)
+            subject_matches = bool(target_subject and item_subject == target_subject)
+            body_matches = bool(
+                target_body
+                and item_body
+                and (target_body[:120] in item_body or item_body[:120] in target_body)
+            )
+            if subject_matches and (from_matches or body_matches):
+                removed.append({"account_key": account_key, "id": normalize(item.get("id"))})
+                changed = True
+                continue
+            kept.append(item)
+        messages[account_key] = kept
+    if changed:
+        write_json(MAIL_MESSAGES_PATH, messages)
+    return removed
+
+
 def poll_mail_once() -> dict[str, Any]:
     config = load_config()
     mail_cfg = config.get("mail_monitor", {})
@@ -1831,16 +1871,20 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 body = self.read_body()
                 item_id = normalize(body.get("id"))
                 if item_id:
+                    target = next((item for item in read_interventions() if item.get("id") == item_id), None)
                     updated = update_intervention(item_id, {"status": "已处理", "handled_at": now_iso()})
-                    self.send_json({"ok": True, "updated": updated})
+                    removed_mail_messages = remove_matching_mail_messages(target or {}) if updated else []
+                    self.send_json({"ok": True, "updated": updated, "removed_mail_messages": removed_mail_messages})
                     return
                 index = int(body.get("index", -1))
                 items = read_interventions()
+                removed_mail_messages = []
                 if 0 <= index < len(items):
+                    removed_mail_messages = remove_matching_mail_messages(items[index])
                     items[index]["status"] = "已处理"
                     items[index]["handled_at"] = now_iso()
                     write_json(INTERVENTION_PATH, items)
-                self.send_json({"ok": True, "updated": 0 <= index < len(items)})
+                self.send_json({"ok": True, "updated": 0 <= index < len(items), "removed_mail_messages": removed_mail_messages})
                 return
             if self.path == "/api/intervention/read":
                 body = self.read_body()

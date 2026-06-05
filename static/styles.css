@@ -115,6 +115,21 @@ button:disabled {
   font-size: 13px;
 }
 
+.iconButton {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: #eef3f5;
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.iconButton:hover {
+  background: #dfe8eb;
+}
+
 .danger {
   background: #b63b2e;
   color: #fff;
