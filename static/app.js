@@ -43,10 +43,33 @@ async function api(path, options = {}) {
 function setBusy(isBusy) {
   state.taskRunning = isBusy;
   $("dailyBtn").disabled = isBusy;
-  $("sendBtn").disabled = isBusy;
   document.querySelectorAll("[data-reset]").forEach((button) => {
     button.disabled = isBusy;
   });
+  syncSendLimit();
+}
+
+function selectedModel() {
+  return state.models.find((model) => model.key === $("modelSelect").value);
+}
+
+function syncSendLimit() {
+  const input = $("sendLimit");
+  const sendButton = $("sendBtn");
+  const model = selectedModel();
+  const max = Math.max(0, Number(model?.unsent || 0));
+  input.max = String(max);
+  input.min = max > 0 ? "1" : "0";
+  if (max <= 0) {
+    input.value = "0";
+    sendButton.disabled = true;
+    sendButton.title = "该车型没有未发客户";
+    return;
+  }
+  const current = Math.floor(Number(input.value || 1));
+  input.value = String(Math.min(max, Math.max(1, current)));
+  sendButton.disabled = state.taskRunning;
+  sendButton.title = `最多发送 ${max} 封`;
 }
 
 function fillSelects(models, senders) {
@@ -80,6 +103,7 @@ function fillSelects(models, senders) {
   } else if (selectedSender && [...senderSelect.options].some((item) => item.value === selectedSender)) {
     senderSelect.value = selectedSender;
   }
+  syncSendLimit();
 }
 
 function renderModels(models) {
@@ -314,10 +338,15 @@ async function startDaily() {
 
 async function sendMail() {
   const model = $("modelSelect").value;
-  const limit = Number($("sendLimit").value || 1);
+  syncSendLimit();
+  const limit = Number($("sendLimit").value || 0);
   const sender = $("senderSelect").value;
   if (!sender) {
     alert("请先配置并选择发件邮箱。");
+    return;
+  }
+  if (limit <= 0) {
+    alert("该车型没有未发客户。");
     return;
   }
   await api("/api/send", {
@@ -349,6 +378,8 @@ async function clearInterventions() {
 $("refreshBtn").addEventListener("click", refresh);
 $("dailyBtn").addEventListener("click", startDaily);
 $("sendBtn").addEventListener("click", sendMail);
+$("modelSelect").addEventListener("change", syncSendLimit);
+$("sendLimit").addEventListener("input", syncSendLimit);
 $("clearInterventionBtn").addEventListener("click", clearInterventions);
 $("mailGrid").addEventListener("click", (event) => {
   const button = event.target.closest("[data-mail-id]");

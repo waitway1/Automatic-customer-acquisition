@@ -948,6 +948,8 @@ def send_for_model(model_key: str, limit: int, sender_profile: str | None = None
     config = load_config()
     model = config["models"][model_key]
     emails = unsent_emails_for_model(config, model_key, limit)
+    if len(emails) < limit:
+        raise RuntimeError(f"{model['label']} 未发客户只有 {len(emails)} 个，不能发送 {limit} 封")
     append_log(f"开始发送: {model['label']} limit={limit} targets={len(emails)}")
     results = []
     sent = 0

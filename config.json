@@ -30,7 +30,7 @@
   "mail_accounts": [
     {
       "key": "artway_mail",
-      "label": "Artway邮箱",
+      "label": "阿里邮箱",
       "sender_profile": "artway_sender",
       "imap_host": "imaphk.qiye.aliyun.com",
       "imap_port": 993,
