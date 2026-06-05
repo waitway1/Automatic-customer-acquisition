@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from copy import copy
@@ -432,6 +433,27 @@ def load_config() -> dict[str, Any]:
     return deep_merge(config, local)
 
 
+def project_path(value: Any) -> Path:
+    text = normalize(value)
+    path = Path(text)
+    if not text:
+        return path
+    return path if path.is_absolute() else ROOT / path
+
+
+def python_executable(config: dict[str, Any]) -> str:
+    configured = normalize(config.get("python"))
+    if configured:
+        if "/" in configured or "\\" in configured:
+            candidate = project_path(configured)
+            if candidate.exists():
+                return str(candidate)
+            return sys.executable
+        return configured
+    bundled = ROOT / "python" / "python.exe"
+    return str(bundled) if bundled.exists() else sys.executable
+
+
 def normalize(value: Any) -> str:
     if value is None:
         return ""
@@ -572,7 +594,7 @@ def should_ignore_bounce(config: dict[str, Any], msg: email.message.Message) -> 
 
 def model_workbook_path(config: dict[str, Any], model_key: str) -> Path:
     model = config["models"][model_key]
-    folder = Path(config["excel_root"]) / model["folder"]
+    folder = project_path(config["excel_root"]) / model["folder"]
     configured = model.get("workbook", "")
     direct = folder / configured if configured else Path("")
     if configured and direct.exists():
@@ -604,7 +626,7 @@ def model_image_paths(config: dict[str, Any], model: dict[str, Any]) -> tuple[li
     if isinstance(values, str):
         values = [values]
     base_dirs = [
-        Path(value)
+        project_path(value)
         for value in [
             config.get("email_picture_dir", ""),
             config.get("image_root", ""),
@@ -787,7 +809,7 @@ def tail_lines(path: Path, limit: int) -> list[str]:
 
 
 def sender_profiles(config: dict[str, Any]) -> dict[str, Any]:
-    package = Path(config.get("outreach_package", ""))
+    package = project_path(config.get("outreach_package", ""))
     path = package / "sender_profiles.local.json"
     return read_json(path, {})
 
@@ -865,8 +887,18 @@ def anysearch_cmd(config: dict[str, Any]) -> list[str]:
     if not raw:
         return []
     if raw.lower().startswith("python "):
-        return ["python"] + raw.split(" ", 1)[1].split()
-    return raw.split()
+        parts = ["python"] + raw.split(" ", 1)[1].split()
+    else:
+        parts = raw.split()
+    if parts and parts[0].lower() in {"python", "python3"}:
+        parts[0] = python_executable(config)
+    for index, part in enumerate(parts[1:], start=1):
+        if "/" not in part and "\\" not in part:
+            continue
+        candidate = project_path(part)
+        if candidate.exists():
+            parts[index] = str(candidate)
+    return parts
 
 
 def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) -> str:
@@ -1230,7 +1262,7 @@ def reset_model_send_state(model_key: str) -> dict[str, Any]:
 def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profile: str | None = None) -> Path:
     model = config["models"][model_key]
     GENERATED_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    package = Path(config["outreach_package"])
+    package = project_path(config["outreach_package"])
     logo_file = ensure_fallback_logo()
     image_paths, missing_images = model_image_paths(config, model)
     if missing_images:
@@ -1284,11 +1316,12 @@ def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profil
     variables = read_json(package / "templates" / "variables.json", {})
     logo_path = config.get("logo_path") or variables.get("logoPath") or variables.get("logo_path") or ""
     if logo_path:
-        candidate = Path(logo_path)
-        if not candidate.is_absolute():
-            candidate = package / "templates" / logo_path
-        if candidate.exists():
-            cfg["assets"]["logo_path"] = str(candidate).replace("\\", "/")
+        raw_logo = Path(normalize(logo_path))
+        logo_candidates = [raw_logo] if raw_logo.is_absolute() else [ROOT / raw_logo, package / "templates" / raw_logo]
+        for candidate in logo_candidates:
+            if candidate.exists():
+                cfg["assets"]["logo_path"] = str(candidate).replace("\\", "/")
+                break
     cfg_path = GENERATED_CONFIG_DIR / f"{model_key}.json"
     write_json(cfg_path, cfg)
     return cfg_path
@@ -1338,10 +1371,10 @@ def send_for_model(model_key: str, limit: int, sender_profile: str | None = None
 def send_target_email_for_model(model_key: str, target_email: str, sender_profile: str | None = None, log_label: str = "退信重发") -> dict[str, Any]:
     config = load_config()
     model = config["models"][model_key]
-    package = Path(config["outreach_package"])
+    package = project_path(config["outreach_package"])
     retry_profile = sender_profile or normalize(config.get("retry_sender_profile")) or config.get("sender_profile", "qq_sender")
     cfg_path = ensure_outreach_config(config, model_key, retry_profile)
-    python_exe = config.get("python", "python")
+    python_exe = python_executable(config)
     script = package / "scripts" / "send_portable_campaign.py"
     cmd = [
         python_exe,

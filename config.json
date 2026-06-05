@@ -1,10 +1,10 @@
 {
   "host": "127.0.0.1",
   "port": 8765,
-  "python": "C:/1/python/python.exe",
-  "anysearch_command": "python C:/Users/Administrator/.codex/skills/anysearch/scripts/anysearch_cli.py",
+  "python": "python/python.exe",
+  "anysearch_command": "python tools/anysearch/scripts/anysearch_cli.py",
   "excel_root": "C:/1/Chrome/work/excel",
-  "outreach_package": "E:/celeste/outreach_package",
+  "outreach_package": "outreach_package",
   "sender_profile": "artway_sender",
   "retry_sender_profile": "gmail_sender",
   "daily_send_profile": "artway_sender",
@@ -318,6 +318,6 @@
     "无法投递",
     "邮件投递失败"
   ],
-  "email_picture_dir": "E:/celeste/outreach_assets/email_images",
-  "logo_path": "E:/celeste/outreach_assets/email_images/company-logo.png"
+  "email_picture_dir": "outreach_assets/email_images",
+  "logo_path": "outreach_assets/email_images/company-logo.png"
 }
