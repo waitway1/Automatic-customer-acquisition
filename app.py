@@ -38,6 +38,7 @@ INTERVENTION_PATH = RUNTIME_DIR / "intervention.json"
 BOUNCE_STATE_PATH = RUNTIME_DIR / "bounce_state.json"
 MAIL_STATUS_PATH = RUNTIME_DIR / "mail_status.json"
 DAILY_INVALID_PATH = RUNTIME_DIR / "daily_invalid.json"
+MAIL_MESSAGES_PATH = RUNTIME_DIR / "mail_messages.json"
 GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
 ASSET_DIR = ROOT / "work" / "assets"
 
@@ -582,6 +583,7 @@ def resolve_mail_account(config: dict[str, Any], account: dict[str, Any]) -> dic
 
 def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
     saved = read_json(MAIL_STATUS_PATH, {})
+    saved_messages = read_json(MAIL_MESSAGES_PATH, {})
     statuses = []
     monitor_running = MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()
     for account in config.get("mail_accounts", []):
@@ -607,6 +609,8 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
             item["error"] = ""
         if monitor_running and item.get("status") == "等待检查" and not item.get("last_checked"):
             item["status"] = "检查中"
+        messages = saved_messages.get(resolved["key"], []) if isinstance(saved_messages, dict) else []
+        item["messages"] = messages[:5] if isinstance(messages, list) else []
         statuses.append(item)
     return statuses
 
@@ -1249,6 +1253,34 @@ def clear_active_interventions() -> int:
     return cleared
 
 
+def mail_message_id(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str) -> str:
+    raw = "|".join([account_key, folder, msg_id, normalize(subject), normalize(from_addr)])
+    return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str, text: str) -> None:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        messages = {}
+    body = leading_message_text(text) or clean_message_text(text)
+    item = {
+        "id": mail_message_id(account_key, folder, msg_id, subject, from_addr),
+        "time": now_iso(),
+        "folder": folder,
+        "from": from_addr,
+        "subject": subject or "无主题",
+        "snippet": re.sub(r"\s+", " ", body)[:180],
+        "body": body[:12000],
+    }
+    account_messages = messages.get(account_key, [])
+    if not isinstance(account_messages, list):
+        account_messages = []
+    account_messages = [existing for existing in account_messages if existing.get("id") != item["id"]]
+    account_messages.insert(0, item)
+    messages[account_key] = account_messages[:20]
+    write_json(MAIL_MESSAGES_PATH, messages)
+
+
 def poll_mail_once() -> dict[str, Any]:
     config = load_config()
     mail_cfg = config.get("mail_monitor", {})
@@ -1409,7 +1441,13 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                     fetch_status, msg_data = client.fetch(msg_id, "(RFC822)")
                     if fetch_status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue
-                    bounces, interested = process_mail_message(config, msg_data[0][1])
+                    raw = msg_data[0][1]
+                    msg = email.message_from_bytes(raw)
+                    subject = decode_mime_header(msg.get("Subject"))
+                    from_addr = decode_mime_header(msg.get("From"))
+                    text = message_text(msg)
+                    record_mail_message(resolved["key"], folder, msg_id.decode("ascii", errors="ignore"), subject, from_addr, text)
+                    bounces, interested = process_mail_message(config, raw)
                     status["checked"] += 1
                     status["bounces"] += bounces
                     status["interested"] += interested

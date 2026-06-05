@@ -123,6 +123,7 @@ function renderMailAccounts(accounts) {
   accounts.forEach((account) => {
     const node = document.createElement("article");
     const statusClass = mailStatusClass(account.status);
+    const messages = account.messages || [];
     node.className = "mailCard";
     node.innerHTML = `
       <div class="cardTitle">
@@ -136,7 +137,28 @@ function renderMailAccounts(accounts) {
       </div>
       <p class="subtle">${account.last_checked ? `最近检查 ${account.last_checked}` : "等待后台检查"}</p>
       ${account.error ? `<p class="errorText">${account.error}</p>` : ""}
+      ${
+        messages.length
+          ? `<div class="mailMessageList">${messages
+              .map(
+                (message) => `
+                  <button class="mailPreview mailInboxPreview" data-mail-id="${escapeHtml(message.id)}" type="button">
+                    <span>${escapeHtml(message.from || "")}</span>
+                    <strong>${escapeHtml(shortText(message.subject || "无主题", 80))}</strong>
+                    <em>${escapeHtml(shortText(message.snippet || message.body || "", 120))}</em>
+                  </button>
+                `
+              )
+              .join("")}</div>`
+          : ""
+      }
     `;
+    node.querySelectorAll("[data-mail-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const message = messages.find((item) => item.id === button.dataset.mailId);
+        if (message) openMailModal(message, { markRead: false });
+      });
+    });
     grid.appendChild(node);
   });
 }
@@ -181,12 +203,13 @@ function renderIntervention(items) {
   });
 }
 
-async function openMailModal(item) {
+async function openMailModal(item, options = {}) {
+  const markRead = options.markRead !== false;
   $("modalSubject").textContent = item.subject || "无主题";
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
   $("mailModal").hidden = false;
-  if (!item.read_at && item.id) {
+  if (markRead && !item.read_at && item.id) {
     await api("/api/intervention/read", {
       method: "POST",
       body: JSON.stringify({ id: item.id }),

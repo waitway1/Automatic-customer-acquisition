@@ -333,6 +333,31 @@ input {
   margin-top: 8px;
 }
 
+.mailMessageList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.mailInboxPreview {
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+
+.mailInboxPreview:hover {
+  background: #edf4f2;
+}
+
+.mailInboxPreview em {
+  color: var(--muted);
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
 .errorText {
   margin-top: 8px;
   color: var(--bad);
