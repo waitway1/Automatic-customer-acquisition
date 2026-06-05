@@ -8,7 +8,7 @@
   "sender_profile": "artway_sender",
   "retry_sender_profile": "gmail_sender",
   "daily_send_profile": "artway_sender",
-  "auto_send_after_daily_collect": true,
+  "auto_send_after_daily_collect": false,
   "mail_monitor": {
     "enabled_on_start": true,
     "interval_seconds": 60,

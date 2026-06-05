@@ -22,7 +22,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urlparse
+from urllib.request import Request, urlopen
 
 from openpyxl import load_workbook
 
@@ -65,6 +66,18 @@ ACCESSORY_TERMS = (
     "bull bar",
     "grille",
 )
+LEAD_SEARCH_SUFFIXES = (
+    "accessories shop email",
+    "accessories dealer contact",
+    "parts store email",
+    "4x4 accessories distributor email",
+    "body kit supplier contact",
+    "side steps supplier email",
+    "roof rack dealer email",
+    "offroad accessories wholesale email",
+    "aftermarket parts contact",
+    "online shop contact",
+)
 BAD_EMAIL_PREFIXES = (
     "noreply@",
     "no-reply@",
@@ -87,6 +100,13 @@ BAD_HOSTS = {
     "etsy.com",
     "google.com",
 }
+ANYSEARCH_QUOTA_TERMS = (
+    "daily_free_quota_exhausted",
+    "quota exhausted",
+    "rate limit",
+    "too many requests",
+    "429",
+)
 AUTO_REPLY_TERMS = (
     "automated reply",
     "automatic reply",
@@ -853,10 +873,73 @@ def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) ->
     cmd = anysearch_cmd(config) + args
     if not cmd:
         return ""
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+    env = os.environ.copy()
+    api_key = normalize(config.get("anysearch_api_key"))
+    if api_key:
+        env["ANYSEARCH_API_KEY"] = api_key
+    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
+    combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
     if proc.returncode != 0:
         append_log(f"AnySearch failed: {' '.join(args)} :: {proc.stderr.strip()}")
-    return proc.stdout
+    if anysearch_limited(combined):
+        append_log("AnySearch 额度不可用，切换备用采集方式")
+    return combined
+
+
+def anysearch_limited(output: str) -> bool:
+    lower = output.lower()
+    return any(term in lower for term in ANYSEARCH_QUOTA_TERMS)
+
+
+def http_fetch(url: str, timeout: int = 25) -> str:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read(2_000_000)
+        content_type = response.headers.get("Content-Type", "")
+    charset_match = re.search(r"charset=([\w.\-]+)", content_type, re.I)
+    charset = charset_match.group(1) if charset_match else "utf-8"
+    return raw.decode(charset, errors="replace")
+
+
+def html_to_text(html: str) -> str:
+    text = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", html)
+    text = re.sub(r"(?is)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?is)</(p|div|li|tr|h[1-6])>", "\n", text)
+    text = re.sub(r"(?is)<[^>]+>", " ", text)
+    return re.sub(r"[ \t\r\f\v]+", " ", unescape(text))
+
+
+def clean_result_url(raw: str) -> str:
+    value = unescape(unquote(raw)).strip().strip(".,)\"'")
+    if value.startswith("//"):
+        value = "https:" + value
+    parsed = urlparse(value)
+    host = parsed.netloc.lower()
+    if "duckduckgo.com" in host:
+        target = parse_qs(parsed.query).get("uddg", [""])[0]
+        if target:
+            value = unquote(target)
+            parsed = urlparse(value)
+            host = parsed.netloc.lower()
+    if "bing.com" in host and parsed.path.startswith("/ck/"):
+        target = parse_qs(parsed.query).get("u", [""])[0]
+        if target.startswith("a1"):
+            payload = target[2:]
+            payload += "=" * (-len(payload) % 4)
+            try:
+                value = base64.urlsafe_b64decode(payload).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        elif target.startswith("http"):
+            value = unquote(target)
+    return value
 
 
 def parse_search_results(output: str) -> list[str]:
@@ -868,7 +951,7 @@ def parse_search_results(output: str) -> list[str]:
     urls.extend(URL_RE.findall(output))
     clean = []
     for url in urls:
-        url = url.rstrip(".,)")
+        url = clean_result_url(url)
         host = host_from_url(url)
         if not host:
             continue
@@ -879,9 +962,49 @@ def parse_search_results(output: str) -> list[str]:
     return clean
 
 
+def fallback_search_urls(query: str, max_results: int = 8) -> list[str]:
+    urls: list[str] = []
+    search_urls = [
+        f"https://www.bing.com/search?format=rss&q={quote_plus(query)}",
+        f"https://duckduckgo.com/html/?q={quote_plus(query)}",
+    ]
+    for search_url in search_urls:
+        if len(urls) >= max_results:
+            break
+        try:
+            output = http_fetch(search_url, timeout=25)
+        except Exception as exc:
+            append_log(f"备用搜索失败: {query} :: {exc}")
+            continue
+        for url in parse_search_results(output):
+            if url not in urls:
+                urls.append(url)
+            if len(urls) >= max_results:
+                break
+    return urls
+
+
+def search_candidate_urls(config: dict[str, Any], query: str, max_results: int = 8) -> list[str]:
+    output = run_anysearch(config, ["search", query, "--max_results", str(max_results)], timeout=80)
+    urls = parse_search_results(output)
+    if anysearch_limited(output) or not urls:
+        for url in fallback_search_urls(query, max_results=max_results):
+            if url not in urls:
+                urls.append(url)
+            if len(urls) >= max_results:
+                break
+    return urls[:max_results]
+
+
 def extract_page(config: dict[str, Any], url: str) -> str:
     output = run_anysearch(config, ["extract", url], timeout=80)
-    return output[:120000]
+    if output.strip() and not anysearch_limited(output):
+        return output[:120000]
+    try:
+        return html_to_text(http_fetch(url, timeout=30))[:120000]
+    except Exception as exc:
+        append_log(f"备用页面抓取失败: {url} :: {exc}")
+        return output[:120000]
 
 
 def candidate_company_from_text(url: str, text: str) -> str:
@@ -910,18 +1033,40 @@ def build_dedupe_sets(config: dict[str, Any], model_key: str) -> tuple[set[str],
     return emails, domains
 
 
+def lead_search_queries(model: dict[str, Any]) -> list[str]:
+    queries: list[str] = []
+
+    def add(value: str) -> None:
+        text = normalize(value)
+        if text and text.lower() not in {item.lower() for item in queries}:
+            queries.append(text)
+
+    for query in model.get("search_queries", []):
+        add(query)
+
+    vehicle_terms = [term for term in model.get("vehicle_terms", []) if len(term) >= 4][:4]
+    product_items = [term for term in model.get("message", {}).get("product_items", []) if len(term) >= 4][:4]
+    for vehicle in vehicle_terms:
+        for suffix in LEAD_SEARCH_SUFFIXES:
+            add(f"{vehicle} {suffix}")
+        for product in product_items:
+            add(f"{vehicle} {product} dealer email")
+            add(f"{vehicle} {product} supplier contact")
+
+    return queries[:60]
+
+
 def collect_for_model(config: dict[str, Any], model_key: str, target_count: int) -> dict[str, Any]:
     model = config["models"][model_key]
     append_log(f"开始获客: {model['label']} 目标 {target_count}")
     existing_emails, existing_domains = build_dedupe_sets(config, model_key)
     found: list[dict[str, str]] = []
     seen_urls: set[str] = set()
-    queries = model.get("search_queries", [])[:]
+    queries = lead_search_queries(model)
     for query_text in queries:
         if len(found) >= target_count:
             break
-        output = run_anysearch(config, ["search", query_text, "--max_results", "8"], timeout=80)
-        for url in parse_search_results(output):
+        for url in search_candidate_urls(config, query_text, max_results=8):
             if len(found) >= target_count:
                 break
             if url in seen_urls:
@@ -1047,18 +1192,9 @@ def send_with_fallback_for_target(model_key: str, target_email: str, primary_pro
 def daily_collect(limit_per_model: int) -> dict[str, Any]:
     config = load_config()
     results = []
-    auto_send = bool(config.get("auto_send_after_daily_collect", True))
-    daily_sender = normalize(config.get("daily_send_profile")) or normalize(config.get("sender_profile"))
     for key in config.get("models", {}):
         result = collect_for_model(config, key, limit_per_model)
         result["auto_sent"] = []
-        if auto_send:
-            for email_value in result.get("written_emails", []):
-                send_result = send_with_fallback_for_target(key, email_value, daily_sender, "每日获客发送")
-                if send_result.get("ok"):
-                    result["auto_sent"].append(send_result)
-                else:
-                    result.setdefault("auto_send_failed", []).append({"email": email_value, **send_result})
         results.append(result)
     return {"daily_limit": limit_per_model, "results": results}
 
@@ -1313,7 +1449,15 @@ def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: st
         write_json(BOUNCE_STATE_PATH, state)
         append_log(f"退信二次失败忽略: {bounced_email}")
         return {"action": "ignored_retried_bounce"}
-    send_result = send_target_email_for_model(model_key, bounced_email)
+    retry_sender = normalize(config.get("retry_sender_profile")) or normalize(config.get("sender_profile"))
+    try:
+        send_result = send_target_email_for_model(model_key, bounced_email, retry_sender)
+    except Exception as exc:
+        state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso(), "retry_error": str(exc)[:500]}
+        write_json(BOUNCE_STATE_PATH, state)
+        record_today_invalid(model_key, bounced_email, retry_sender, str(exc))
+        append_log(f"退信备用发送失败，已计入今日失效: {bounced_email}")
+        return {"action": "retry_send_failed", "error": str(exc)}
     state[key] = {"retried": True, "failed_final": False, "updated_at": now_iso()}
     write_json(BOUNCE_STATE_PATH, state)
     return {"action": "retried_once", "send_result": send_result}
@@ -1847,6 +1991,8 @@ class ApiHandler(SimpleHTTPRequestHandler):
         if self.path == "/api/config":
             cfg = load_config()
             redacted = dict(cfg)
+            if redacted.get("anysearch_api_key"):
+                redacted["anysearch_api_key"] = "***"
             mail_cfg = dict(redacted.get("mail_monitor", {}))
             if mail_cfg.get("imap_password"):
                 mail_cfg["imap_password"] = "***"
