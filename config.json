@@ -4,7 +4,7 @@
   "python": "C:/1/python/python.exe",
   "anysearch_command": "python C:/Users/Administrator/.codex/skills/anysearch/scripts/anysearch_cli.py",
   "excel_root": "C:/1/Chrome/work/excel",
-  "outreach_package": "C:/1/Chrome/portable-product-email-outreach-skill",
+  "outreach_package": "E:/celeste/outreach_package",
   "sender_profile": "artway_sender",
   "retry_sender_profile": "gmail_sender",
   "daily_send_profile": "artway_sender",
@@ -100,8 +100,8 @@
         ]
       },
       "images": [
-        "12.jpg",
-        "13.jpg"
+        "14.jpg",
+        "16.png"
       ]
     },
     "byd_shark6": {
@@ -318,5 +318,6 @@
     "无法投递",
     "邮件投递失败"
   ],
-  "email_picture_dir": "C:/1/Chrome/work/Email pictures"
+  "email_picture_dir": "E:/celeste/outreach_assets/email_images",
+  "logo_path": "E:/celeste/outreach_assets/email_images/company-logo.png"
 }

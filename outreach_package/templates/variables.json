@@ -1,0 +1,12 @@
+{
+  "companyName": "Changzhou Dadao Electronic Technology Co.,Ltd",
+  "companyAddress": "No.103 Menghe Avenue, Menghe Town, Xinbei District, Changzhou City, Jiangsu Province, China",
+  "logoCid": "logo_img",
+  "logoAlt": "Company Logo",
+  "logoStyle": "max-width:260px; height:auto;",
+  "productImageCid": "main_img",
+  "productImageAlt": "Product Image",
+  "productImageStyle": "max-width:420px; width:100%; height:auto;",
+  "notes": "Usually keep signature/logo fixed; commonly only swap the product image per campaign.",
+  "productImageCidPrefix": "stage_img_"
+}

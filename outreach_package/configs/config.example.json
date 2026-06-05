@@ -1,0 +1,52 @@
+{
+  "sheet": {
+    "workbookPath": "./data/customers.xlsx",
+    "sheetName": "Sheet1"
+  },
+  "fieldMap": {
+    "company": "company",
+    "website": "website",
+    "email": "email",
+    "country": "country",
+    "quality": "quality",
+    "title": "title",
+    "website_summary": "website_summary",
+    "status": "status",
+    "last_result": "last_result",
+    "last_sent_at": "last_sent_at"
+  },
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 465,
+    "user": "sales@example.com",
+    "password": "replace-me",
+    "plainFallback": "Please view this email in HTML format for product images and company details."
+  },
+  "product": {
+    "name": "Ranger Raptor upgrade wheel arch",
+    "vehicleModel": "Ford Ranger T9",
+    "imagePath": "./assets/product.png",
+    "imagePaths": ["./assets/product.png"],
+    "imageAlt": "Ranger Raptor upgrade wheel arch"
+  },
+  "copy": {
+    "vehicleModel": "Ford Ranger T9",
+    "productFamily": "Ford Ranger T9 exterior and accessory products",
+    "productFocus": "Ranger Raptor upgrade wheel arch",
+    "campaignAngle": "wider stance and arch coverage",
+    "priceHint": "",
+    "maxProducts": 3
+  },
+  "logo": {
+    "imagePath": "./assets/company-logo.png"
+  },
+  "templateVars": "./templates/variables.json",
+  "signatureTemplate": "./templates/company_signature.html",
+  "runtime": {
+    "statePath": "./runtime/campaign-state.json",
+    "logPath": "./runtime/campaign-log.txt",
+    "startRow": 2,
+    "delayMin": 15,
+    "delayMax": 30
+  }
+}

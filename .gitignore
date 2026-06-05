@@ -4,5 +4,7 @@ runtime/
 work/
 .env
 config.local.json
+outreach_package/sender_profiles.local.json
+outreach_package/scripts/__pycache__/
 *.log
 *.pid

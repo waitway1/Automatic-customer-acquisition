@@ -1138,6 +1138,7 @@ def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profil
             "first_images": [str(path).replace("\\", "/") for path in image_paths],
         },
         "message": {
+            "vehicle_model": model.get("message", {}).get("vehicle_model", model["label"]),
             "product_label": model.get("message", {}).get("product_label", model["label"] + " accessories"),
             "product_items": model.get("message", {}).get("product_items", ["accessories"]),
             "price_hint": "",
@@ -1145,7 +1146,7 @@ def ensure_outreach_config(config: dict[str, Any], model_key: str, sender_profil
         },
     }
     variables = read_json(package / "templates" / "variables.json", {})
-    logo_path = variables.get("logoPath") or variables.get("logo_path") or ""
+    logo_path = config.get("logo_path") or variables.get("logoPath") or variables.get("logo_path") or ""
     if logo_path:
         candidate = Path(logo_path)
         if not candidate.is_absolute():
