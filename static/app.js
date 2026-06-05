@@ -3,6 +3,8 @@ const state = {
   senders: [],
   interventions: [],
   taskRunning: false,
+  modalItem: null,
+  modalOptions: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -143,7 +145,8 @@ function renderMailAccounts(accounts) {
           ? `<div class="mailMessageList">${messages
               .map(
                 (message) => `
-                  <button class="mailPreview mailInboxPreview" data-mail-id="${escapeHtml(message.id)}" type="button">
+                  <button class="mailPreview mailInboxPreview ${message.read_at ? "read" : "unread"}" data-mail-id="${escapeHtml(message.id)}" type="button">
+                    <span class="unreadDot" aria-hidden="true"></span>
                     <span>${escapeHtml(message.from || "")}</span>
                     <strong>${escapeHtml(shortText(message.subject || "无主题", 80))}</strong>
                     <em>${escapeHtml(shortText(message.snippet || message.body || "", 120))}</em>
@@ -157,7 +160,7 @@ function renderMailAccounts(accounts) {
     node.querySelectorAll("[data-mail-id]").forEach((button) => {
       button.addEventListener("click", () => {
         const message = messages.find((item) => item.id === button.dataset.mailId);
-        if (message) openMailModal(message, { markRead: false });
+        if (message) openMailModal(message, { type: "mailbox", accountKey: account.key });
       });
     });
     grid.appendChild(node);
@@ -205,10 +208,13 @@ function renderIntervention(items) {
 }
 
 async function openMailModal(item, options = {}) {
-  const markRead = options.markRead !== false;
+  const markRead = options.type !== "mailbox" && options.markRead !== false;
+  state.modalItem = item;
+  state.modalOptions = options;
   $("modalSubject").textContent = item.subject || "无主题";
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
+  $("markReadBtn").hidden = options.type !== "mailbox" || Boolean(item.read_at);
   $("mailModal").hidden = false;
   if (markRead && !item.read_at && item.id) {
     await api("/api/intervention/read", {
@@ -223,6 +229,22 @@ async function openMailModal(item, options = {}) {
 
 function closeMailModal() {
   $("mailModal").hidden = true;
+  state.modalItem = null;
+  state.modalOptions = {};
+  $("markReadBtn").hidden = true;
+}
+
+async function markCurrentMailRead() {
+  const item = state.modalItem;
+  const options = state.modalOptions || {};
+  if (!item || options.type !== "mailbox" || item.read_at) return;
+  await api("/api/mail/read", {
+    method: "POST",
+    body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
+  });
+  item.read_at = new Date().toISOString();
+  closeMailModal();
+  refresh();
 }
 
 function renderTask(task) {
@@ -306,6 +328,7 @@ $("refreshBtn").addEventListener("click", refresh);
 $("dailyBtn").addEventListener("click", startDaily);
 $("sendBtn").addEventListener("click", sendMail);
 $("clearInterventionBtn").addEventListener("click", clearInterventions);
+$("markReadBtn").addEventListener("click", markCurrentMailRead);
 $("closeModalBtn").addEventListener("click", closeMailModal);
 $("mailModal").addEventListener("click", (event) => {
   if (event.target === $("mailModal")) closeMailModal();

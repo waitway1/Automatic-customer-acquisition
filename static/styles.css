@@ -342,10 +342,28 @@ input {
 }
 
 .mailInboxPreview {
+  position: relative;
+  grid-template-columns: 10px minmax(0, 1fr);
   padding: 9px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--panel-2);
+}
+
+.mailInboxPreview span:not(.unreadDot),
+.mailInboxPreview strong,
+.mailInboxPreview em {
+  grid-column: 2;
+}
+
+.mailInboxPreview .unreadDot {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  margin-top: 5px;
+}
+
+.mailInboxPreview.read .unreadDot {
+  opacity: 0;
 }
 
 .mailInboxPreview:hover {
@@ -468,6 +486,13 @@ input {
   gap: 16px;
   padding: 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: none;
 }
 
 .modalHeader > div {

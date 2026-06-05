@@ -612,7 +612,7 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
         messages = saved_messages.get(resolved["key"], []) if isinstance(saved_messages, dict) else []
         if isinstance(messages, list):
             item["messages"] = messages[:5]
-            item["new_count"] = len(messages)
+            item["new_count"] = sum(1 for message in messages if not message.get("read_at"))
         else:
             item["messages"] = []
             item["new_count"] = 0
@@ -1280,10 +1280,31 @@ def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str
     account_messages = messages.get(account_key, [])
     if not isinstance(account_messages, list):
         account_messages = []
+    for existing in account_messages:
+        if existing.get("id") == item["id"] and existing.get("read_at"):
+            item["read_at"] = existing["read_at"]
+            break
     account_messages = [existing for existing in account_messages if existing.get("id") != item["id"]]
     account_messages.insert(0, item)
     messages[account_key] = account_messages[:20]
     write_json(MAIL_MESSAGES_PATH, messages)
+
+
+def mark_mail_message_read(account_key: str, message_id: str) -> bool:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return False
+    keys = [account_key] if account_key else list(messages.keys())
+    for key in keys:
+        account_messages = messages.get(key, [])
+        if not isinstance(account_messages, list):
+            continue
+        for item in account_messages:
+            if item.get("id") == message_id:
+                item["read_at"] = now_iso()
+                write_json(MAIL_MESSAGES_PATH, messages)
+                return True
+    return False
 
 
 def poll_mail_once() -> dict[str, Any]:
@@ -1582,6 +1603,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/mail/poll":
                 self.send_json(run_task("mail_poll_once", poll_mail_once))
+                return
+            if self.path == "/api/mail/read":
+                body = self.read_body()
+                message_id = normalize(body.get("id"))
+                if not message_id:
+                    raise RuntimeError("缺少邮件ID")
+                updated = mark_mail_message_read(normalize(body.get("account_key")), message_id)
+                self.send_json({"ok": True, "updated": updated})
                 return
             if self.path == "/api/intervention/close":
                 body = self.read_body()
