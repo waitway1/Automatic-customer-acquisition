@@ -401,6 +401,12 @@ STRONG_INTEREST_PATTERNS = (
     r"发我",
 )
 COUNTRY_BY_SUFFIX = {
+    ".com.cn": "中国",
+    ".cn": "中国",
+    ".com.hk": "香港",
+    ".hk": "香港",
+    ".com.tw": "台湾",
+    ".tw": "台湾",
     ".com.au": "澳大利亚",
     ".au": "澳大利亚",
     ".co.nz": "新西兰",
@@ -537,14 +543,44 @@ def main_domain(value: str) -> str:
 def infer_country(url: str, text: str = "") -> str:
     host = host_from_url(url)
     for suffix, country in sorted(COUNTRY_BY_SUFFIX.items(), key=lambda item: len(item[0]), reverse=True):
-        if host.endswith(suffix):
+        if host.endswith(suffix) and country:
             return country
     merged = f"{url} {text}".lower()
+    preserve_region_hints = [
+        ("hong kong", "香港"),
+        ("hk", "香港"),
+        ("taiwan", "台湾"),
+    ]
+    for token, country in preserve_region_hints:
+        if re.search(rf"\b{re.escape(token)}\b", merged):
+            return country
+    if re.search(r"\b(china|mainland china|prc)\b", merged) or re.search(
+        r"(中国|大陆|中华人民共和国|广东|广州|深圳|上海|北京|江苏|浙江|山东|河北|福建|河南|湖北|湖南|四川|重庆|天津|安徽|江西|广西|辽宁)",
+        text,
+    ):
+        own_company_terms = (
+            "changzhou",
+            "xinbei district",
+            "menghe",
+            "jiangsu province",
+            "celeste",
+            "artway",
+            "factory-direct from china",
+            "made in china",
+            "based in changzhou",
+        )
+        if not any(term in merged for term in own_company_terms):
+            return "中国"
     hints = [
         ("australia", "澳大利亚"),
+        ("australian", "澳大利亚"),
         ("new zealand", "新西兰"),
         ("south africa", "南非"),
         ("united kingdom", "英国"),
+        ("great britain", "英国"),
+        ("britain", "英国"),
+        ("england", "英国"),
+        ("uk", "英国"),
         ("germany", "德国"),
         ("france", "法国"),
         ("italy", "意大利"),
@@ -557,7 +593,7 @@ def infer_country(url: str, text: str = "") -> str:
         ("dubai", "阿联酋"),
     ]
     for token, country in hints:
-        if token in merged:
+        if re.search(rf"\b{re.escape(token)}\b", merged):
             return country
     return ""
 

@@ -76,6 +76,9 @@
       "country_header": "客户国家",
       "website_header": "客户网址",
       "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
       "vehicle_terms": [
         "ranger",
         "ranger t9",
@@ -121,6 +124,7 @@
       "website_header": "网址",
       "first_time_header": "一次跟进时间",
       "exclude_countries": [
+        "中国",
         "澳大利亚"
       ],
       "vehicle_terms": [
@@ -165,6 +169,10 @@
       "country_header": "客户国家",
       "website_header": "客户网址",
       "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国",
+        "英国"
+      ],
       "vehicle_terms": [
         "amarok",
         "vw",
@@ -207,6 +215,9 @@
       "country_header": "国家",
       "website_header": "网址",
       "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
       "vehicle_terms": [
         "hyundai santa fe",
         "santa fe",
@@ -251,6 +262,9 @@
       "country_header": "国家",
       "website_header": "网址",
       "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
       "vehicle_terms": [
         "jetour",
         "jetour t2",

@@ -43,5 +43,5 @@ http://127.0.0.1:8765
 - 获客优先使用项目内 AnySearch：`python tools/anysearch/scripts/anysearch_cli.py`，额度耗尽后自动切换备用搜索。
 - 除 Excel 表格外，运行需要的站点、发送脚本、查找脚本、模板、图片和本机 Python 运行环境都在 `E:\celeste` 内。
 - `python\` 目录体积较大，不提交到 GitHub；换新电脑时请复制整个 `E:\celeste` 文件夹。
-- BYD Shark 6 默认排除澳大利亚客户。
+- 获客排除规则：所有车型不采集中国客户；VW Amarok 不采集英国客户；BYD Shark 6 不采集澳大利亚客户。
 - 发信是对外真实动作，点击按钮后会直接执行当前配置。
