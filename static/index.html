@@ -3,14 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>客户增长控制台</title>
-    <link rel="stylesheet" href="/styles.css?v=2026060511">
+    <title>客户运营台</title>
+    <link rel="stylesheet" href="/styles.css?v=2026060602">
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <h1>客户增长控制台</h1>
-        <p id="clock">正在读取数据</p>
+      <div class="brandBlock">
+        <span class="brandMark" aria-hidden="true">C</span>
+        <div>
+          <h1>客户运营台</h1>
+          <p id="clock">同步中</p>
+        </div>
       </div>
       <div class="actions">
         <button id="refreshBtn" class="secondary" title="刷新数据">刷新</button>
@@ -41,8 +44,8 @@
       <section class="panel sendPanel">
         <div class="sectionHeader tight">
           <div>
-            <h2>邮件发送</h2>
-            <p>选择车型、数量和发件邮箱后执行</p>
+            <h2>发送队列</h2>
+            <p>车型、数量、发件邮箱</p>
           </div>
           <span id="taskState">空闲</span>
         </div>
@@ -66,8 +69,8 @@
       <section>
         <div class="sectionHeader">
           <div>
-            <h2>类别</h2>
-            <p>每个车型独立统计客户、发送状态和今日发送失效</p>
+            <h2>车型概览</h2>
+            <p>客户、已发、未发、今日失效</p>
           </div>
         </div>
         <div id="modelGrid" class="modelGrid"></div>
@@ -77,8 +80,8 @@
         <div>
           <div class="sectionHeader">
             <div>
-              <h2>邮箱状态</h2>
-              <p>网站启动后自动后台检测，包含垃圾邮件和垃圾箱</p>
+              <h2>邮箱监控</h2>
+              <p>新邮件与意向</p>
             </div>
           </div>
           <div id="mailGrid" class="mailGrid"></div>
@@ -86,8 +89,8 @@
         <div>
           <div class="sectionHeader">
             <div>
-              <h2>待人工跟进</h2>
-              <p>客户出现采购意向、询价或合作信号后进入这里</p>
+              <h2>人工跟进</h2>
+              <p>询价、采购意向、合作回复</p>
             </div>
             <button id="clearInterventionBtn" class="danger">一键清除</button>
           </div>
