@@ -66,6 +66,55 @@ ACCESSORY_TERMS = (
     "bumper",
     "bull bar",
     "grille",
+    "floor mat",
+    "floor mats",
+    "floor-mat",
+    "floor-mats",
+    "cross bar",
+    "cross bars",
+    "cross-bar",
+    "cross-bars",
+    "mud flap",
+    "mud flaps",
+    "mud-flap",
+    "mud-flaps",
+    "trailer hitch",
+    "trailer-hitch",
+    "spare tire",
+    "spare-tire",
+    "spare wheel",
+    "spare-wheel",
+)
+SHOP_INTENT_TERMS = (
+    "shop",
+    "store",
+    "dealer",
+    "distributor",
+    "supplier",
+    "wholesale",
+    "manufacturer",
+    "factory",
+    "contact",
+    "about us",
+    "online",
+    "cart",
+    "add to cart",
+    "buy",
+    "product",
+    "products",
+    "collection",
+    "collections",
+    "catalog",
+    "catalogue",
+    "quote",
+    "quotation",
+    "shipping",
+    "delivery",
+    "accessories",
+    "parts",
+    "4x4",
+    "offroad",
+    "off-road",
 )
 LEAD_SEARCH_SUFFIXES = (
     "accessories shop email",
@@ -78,6 +127,10 @@ LEAD_SEARCH_SUFFIXES = (
     "offroad accessories wholesale email",
     "aftermarket parts contact",
     "online shop contact",
+    "accessories online shop",
+    "accessories wholesale contact",
+    "parts distributor contact",
+    "email contact",
 )
 INVALID_SHEET_TOKENS = (
     "邮箱失效",
@@ -141,8 +194,220 @@ BAD_HOSTS = {
     "walmart.com",
     "etsy.com",
     "google.com",
+    "maps.google.com",
+    "bing.com",
+    "duckduckgo.com",
+    "hyundai.com",
+    "hyundaiusa.com",
+    "hyundaicanada.com",
+    "hyundai.news",
+    "jetour.com",
+    "jetourglobal.com",
+    "jetourauto.com",
+    "cheryinternational.com",
+    "byd.com",
+    "made-in-china.com",
+    "cautop.com",
+    "shop.app",
+    "gov.uk",
+    "caranddriver.com",
+    "techradar.com",
+    "baidu.com",
+    "baike.baidu.com",
+    "news.cn",
+    "stats.gov.cn",
+    "hyundai.com.cn",
+    "jetour.com.cn",
+    "jetour.ltd",
+    "myparts.car",
+    "oempartsonline.com",
+    "w3.org",
+    "schemas.live.com",
+    "autohome.com.cn",
+    "jetour.com.hk",
+    "jetourautophilippines.com",
+    "jetourbr.com",
+    "jetour.co.id",
+    "jetoursoueast.mx",
+}
+BAD_HOST_SUFFIXES = (
+    "google.com",
+    "googleusercontent.com",
+    "youtube.com",
+    "facebook.com",
+    "instagram.com",
+    "amazon.com",
+    "ebay.com",
+    "alibaba.com",
+    "aliexpress.com",
+    "baidu.com",
+    "news.cn",
+    "stats.gov.cn",
+    "hyundai.com",
+    "jetour.com",
+    "jetourglobal.com",
+    "jetourauto.com",
+    "cheryinternational.com",
+    "w3.org",
+    "schemas.live.com",
+    "autohome.com.cn",
+    "powerthesaurus.org",
+    "merriam-webster.com",
+    "wordhippo.com",
+    "thesaurus.com",
+    "thesaurus.plus",
+    "antonym.com",
+    "wordhelp.com",
+    "grammardesk.com",
+    "zhihu.com",
+)
+BAD_URL_FRAGMENTS = (
+    "srsltid=",
+    ".css",
+    ".js",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    "/search?",
+    "/maps/",
+    "/news/",
+    "/blog/",
+    "/article/",
+    "/review/",
+    "/reviews/",
+    "/forum/",
+    "/forums/",
+    "/video/",
+    "/videos/",
+    "/privacy",
+    "/terms",
+    "/terms-of-use",
+    "/terms-and-conditions",
+    "/accessibility",
+    "/careers",
+    "/jobs",
+    "/service",
+    "/services",
+    "honda-of-santa-fe",
+    "santa-fe-online-store",
+    "thecollectivesantafe",
+    "freemanauto.com",
+)
+BAD_COMPANY_PREFIXES = (
+    "source",
+    "url",
+    "contact",
+    "contact us",
+    "shop",
+    "store",
+    "products",
+    "all products",
+    "parts",
+    "accessories",
+    "brakes",
+    "new arrivals",
+    "best sellers",
+    "terms",
+    "terms of use",
+    "privacy",
+    "accessibility",
+    "email sign-up",
+    "home",
+    "skip to content",
+    "skip content",
+    "menu",
+    "navigation",
+    "cart",
+    "my account",
+    "search",
+    "user_daily_quota_exhausted",
+    "daily_free_quota_exhausted",
+    "anysearch_timeout",
+    "anysearch_limited",
+    "主页",
+)
+NOISE_EMAIL_DOMAINS = (
+    "hmausa.com",
+    "autoplay.co.nz",
+    "shop.app",
+)
+MODEL_REQUIREMENTS = {
+    "santa_fe": {
+        "model_terms": ("santa fe", "santafe", "santa-fe", "mx5", "xrt"),
+        "must_not_domains": ("hyundai.com", "hyundaiusa.com", "hyundaicanada.com", "hmausa.com"),
+        "must_not_text": ("honda of santa fe", "santa fe online store", "santa fe boutique", "the collective santa fe"),
+    },
+    "jetour_t2_g700": {
+        "model_terms": ("jetour", "t2", "g700", "traveller", "traveler", "jietu"),
+        "must_not_domains": ("jetour.com", "jetourglobal.com", "jetourauto.com", "cheryinternational.com"),
+        "must_not_text": ("official jetour", "jetour global", "dealer locator"),
+    },
+    "byd_shark6": {
+        "model_terms": ("byd shark", "shark 6", "shark6"),
+        "must_not_domains": ("byd.com", "autoplay.co.nz"),
+        "must_not_text": ("vehicle listing", "book a test drive"),
+    },
+    "vw_amarok": {
+        "model_terms": ("amarok", "volkswagen amarok", "vw amarok"),
+        "must_not_domains": ("volkswagen.com", "vw.com"),
+        "must_not_text": ("drivergear", "company store"),
+    },
+    "ranger_t9": {
+        "model_terms": ("ranger", "ford ranger", "ranger t9", "next-gen ranger"),
+        "must_not_domains": ("polaris.com", "rangerready.net", "rangerstation.co"),
+        "must_not_text": ("polaris ranger", "ranger wear", "insect repellent"),
+    },
+}
+MODEL_SEED_URLS = {
+    "santa_fe": (
+        "https://www.psashop.cz/en/santa-fe-mx5-prislusenstvi/",
+        "https://carromats.ca/products/hyundai-santa-fe-gen4-floor-mats",
+        "https://ahparts.com/Hyundai-SANTA-FE-replacement-parts",
+        "https://www.am-autoparts.com/about/contact_us.html",
+        "https://modernspare.com/product/2020-2025-hyundai-santa-fe-spare-tire-kit-options/",
+        "https://www.audioledcar.com/",
+        "https://cars-equipment.com/",
+        "https://auovo.com/",
+    ),
+    "jetour_t2_g700": (
+        "https://uoroffroad.com/brand/jetour/",
+        "https://www.protuning.mu/",
+        "https://cargadget.ae/",
+        "https://desertleaders.com/",
+        "https://desertgears.com/",
+        "https://qatarpart.com/",
+        "https://holdfast.co.za/",
+        "https://www.thebakkieshop.co.za/",
+        "https://www.autostyle.co.za/",
+        "https://www.fbonline4x4accessories.co.za/",
+        "https://slickridezinc.co.za/",
+    ),
+}
+MODEL_SEARCH_SEEDS = {
+    "santa_fe": (
+        "Hyundai Santa Fe MX5 accessories contact email",
+        "Hyundai Santa Fe 2024 roof rack store contact",
+        "Hyundai Santa Fe 2024 side steps accessories email",
+        "Hyundai Santa Fe MX5 cross bars shop email",
+        "Hyundai Santa Fe aftermarket accessories contact",
+    ),
+    "jetour_t2_g700": (
+        "site:.ae Jetour T2 accessories email",
+        "site:.za Jetour T2 4x4 accessories email",
+        "site:.mu Jetour T2 accessories contact",
+        "site:.my Jetour T2 offroad accessories email",
+        "site:.pk Jetour T2 accessories contact",
+        "Jetour Traveller accessories shop email",
+        "Jetour T2 roof rack side steps contact",
+        "Jetour T2 offroad accessories dealer email",
+        "Jetour G700 accessories dealer email",
+    ),
 }
 ANYSEARCH_QUOTA_TERMS = (
+    "user_daily_quota_exhausted",
     "daily_free_quota_exhausted",
     "quota exhausted",
     "rate limit",
@@ -417,8 +682,25 @@ COUNTRY_BY_SUFFIX = {
     ".br": "巴西",
     ".com.mx": "墨西哥",
     ".mx": "墨西哥",
+    ".ca": "加拿大",
+    ".us": "美国",
     ".co.uk": "英国",
     ".uk": "英国",
+    ".cz": "捷克",
+    ".sk": "斯洛伐克",
+    ".mu": "毛里求斯",
+    ".my": "马来西亚",
+    ".sg": "新加坡",
+    ".id": "印度尼西亚",
+    ".ae": "阿联酋",
+    ".qa": "卡塔尔",
+    ".sa": "沙特阿拉伯",
+    ".eg": "埃及",
+    ".lb": "黎巴嫩",
+    ".jm": "牙买加",
+    ".ke": "肯尼亚",
+    ".ng": "尼日利亚",
+    ".pk": "巴基斯坦",
     ".de": "德国",
     ".fr": "法国",
     ".it": "意大利",
@@ -427,8 +709,6 @@ COUNTRY_BY_SUFFIX = {
     ".pl": "波兰",
     ".th": "泰国",
     ".ph": "菲律宾",
-    ".pk": "巴基斯坦",
-    ".ae": "阿联酋",
     ".tr": "土耳其",
     ".ru": "俄罗斯",
     ".za": "南非",
@@ -439,6 +719,8 @@ TASK_LOCK = threading.Lock()
 CURRENT_TASK: dict[str, Any] | None = None
 MAIL_MONITOR_THREAD: threading.Thread | None = None
 MAIL_MONITOR_STOP = threading.Event()
+ANYSEARCH_DISABLED_UNTIL = 0.0
+ANYSEARCH_DISABLED_REASON = ""
 
 
 def now_iso() -> str:
@@ -1049,6 +1331,9 @@ def anysearch_cmd(config: dict[str, Any]) -> list[str]:
 
 
 def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) -> str:
+    global ANYSEARCH_DISABLED_UNTIL, ANYSEARCH_DISABLED_REASON
+    if time.time() < ANYSEARCH_DISABLED_UNTIL:
+        return ANYSEARCH_DISABLED_REASON
     cmd = anysearch_cmd(config) + args
     if not cmd:
         return ""
@@ -1056,11 +1341,28 @@ def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) ->
     api_key = normalize(config.get("anysearch_api_key"))
     if api_key:
         env["ANYSEARCH_API_KEY"] = api_key
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env)
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            env=env,
+        )
+    except subprocess.TimeoutExpired:
+        ANYSEARCH_DISABLED_UNTIL = time.time() + 600
+        ANYSEARCH_DISABLED_REASON = "anysearch_timeout"
+        append_log(f"AnySearch 超时，10 分钟内切换备用采集方式: {' '.join(args)}")
+        return ANYSEARCH_DISABLED_REASON
     combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
     if proc.returncode != 0:
         append_log(f"AnySearch failed: {' '.join(args)} :: {proc.stderr.strip()}")
     if anysearch_limited(combined):
+        ANYSEARCH_DISABLED_UNTIL = time.time() + 3600
+        ANYSEARCH_DISABLED_REASON = combined[:2000] or "anysearch_limited"
         append_log("AnySearch 额度不可用，切换备用采集方式")
     return combined
 
@@ -1070,7 +1372,7 @@ def anysearch_limited(output: str) -> bool:
     return any(term in lower for term in ANYSEARCH_QUOTA_TERMS)
 
 
-def http_fetch(url: str, timeout: int = 25) -> str:
+def http_fetch(url: str, timeout: int = 10) -> str:
     request = Request(
         url,
         headers={
@@ -1121,6 +1423,21 @@ def clean_result_url(raw: str) -> str:
     return value
 
 
+def blocked_host(host: str) -> bool:
+    normalized = host.lower().removeprefix("www.")
+    if normalized in BAD_HOSTS:
+        return True
+    return any(normalized == suffix or normalized.endswith("." + suffix) for suffix in BAD_HOST_SUFFIXES)
+
+
+def blocked_url(url: str) -> bool:
+    lower = url.lower()
+    host = host_from_url(url)
+    if not host or blocked_host(host):
+        return True
+    return any(fragment in lower for fragment in BAD_URL_FRAGMENTS)
+
+
 def parse_search_results(output: str) -> list[str]:
     urls = []
     for line in output.splitlines():
@@ -1134,28 +1451,72 @@ def parse_search_results(output: str) -> list[str]:
         host = host_from_url(url)
         if not host:
             continue
-        if host in BAD_HOSTS or any(host.endswith("." + bad) for bad in BAD_HOSTS):
+        if blocked_url(url):
             continue
         if url not in clean:
             clean.append(url)
     return clean
 
 
-def fallback_search_urls(query: str, max_results: int = 8) -> list[str]:
+def query_relevant_url(query: str, url: str, context: str = "") -> bool:
+    source = re.sub(r"[^a-z0-9]+", " ", f"{url} {context}".lower())
+    vehicle_tokens = (
+        "ranger",
+        "ford ranger",
+        "byd shark",
+        "shark 6",
+        "amarok",
+        "volkswagen amarok",
+        "santa fe",
+        "santafe",
+        "mx5",
+        "jetour",
+        "g700",
+        "traveller",
+        "traveler",
+    )
+    accessory_tokens = ACCESSORY_TERMS + ("4x4", "offroad", "off road", "aftermarket")
+    return any(token in source for token in vehicle_tokens) and any(token.replace("-", " ") in source for token in accessory_tokens)
+
+
+def parse_fallback_search_results(query: str, output: str) -> list[str]:
+    candidates: list[tuple[str, str]] = []
+    for item in re.findall(r"(?is)<item\b.*?</item>", output):
+        link_match = re.search(r"(?is)<link>\s*(.*?)\s*</link>", item)
+        if link_match:
+            candidates.append((link_match.group(1), html_to_text(item)))
+    for href in re.findall(r'(?is)<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', output):
+        url, label = href
+        if "/ck/a" in url or "uddg=" in url or url.startswith("http"):
+            candidates.append((url, html_to_text(label)))
+    clean: list[str] = []
+    for raw_url, context in candidates:
+        url = clean_result_url(raw_url)
+        if blocked_url(url):
+            continue
+        if not query_relevant_url(query, url, context):
+            continue
+        if url not in clean:
+            clean.append(url)
+    return clean
+
+
+def fallback_search_urls(query: str, max_results: int = 12) -> list[str]:
     urls: list[str] = []
     search_urls = [
         f"https://www.bing.com/search?format=rss&q={quote_plus(query)}",
+        f"https://www.bing.com/search?q={quote_plus(query)}&count={max_results}",
         f"https://duckduckgo.com/html/?q={quote_plus(query)}",
     ]
     for search_url in search_urls:
         if len(urls) >= max_results:
             break
         try:
-            output = http_fetch(search_url, timeout=25)
+            output = http_fetch(search_url, timeout=8)
         except Exception as exc:
             append_log(f"备用搜索失败: {query} :: {exc}")
             continue
-        for url in parse_search_results(output):
+        for url in parse_fallback_search_results(query, output):
             if url not in urls:
                 urls.append(url)
             if len(urls) >= max_results:
@@ -1163,10 +1524,10 @@ def fallback_search_urls(query: str, max_results: int = 8) -> list[str]:
     return urls
 
 
-def search_candidate_urls(config: dict[str, Any], query: str, max_results: int = 8) -> list[str]:
-    output = run_anysearch(config, ["search", query, "--max_results", str(max_results)], timeout=80)
+def search_candidate_urls(config: dict[str, Any], query: str, max_results: int = 12) -> list[str]:
+    output = run_anysearch(config, ["search", query, "--max_results", str(max_results)], timeout=25)
     urls = parse_search_results(output)
-    if anysearch_limited(output) or not urls:
+    if anysearch_limited(output) or len(urls) < max_results:
         for url in fallback_search_urls(query, max_results=max_results):
             if url not in urls:
                 urls.append(url)
@@ -1175,32 +1536,245 @@ def search_candidate_urls(config: dict[str, Any], query: str, max_results: int =
     return urls[:max_results]
 
 
-def extract_page(config: dict[str, Any], url: str) -> str:
-    output = run_anysearch(config, ["extract", url], timeout=80)
-    if output.strip() and not anysearch_limited(output):
+def batch_search_candidate_urls(config: dict[str, Any], queries: list[str], max_results: int = 8) -> dict[str, list[str]]:
+    if not queries:
+        return {}
+    payload = json.dumps([{"query": query, "max_results": max_results} for query in queries], ensure_ascii=False)
+    output = run_anysearch(config, ["batch_search", "--queries", payload], timeout=35)
+    urls = parse_search_results(output)
+    result: dict[str, list[str]] = {query: [] for query in queries}
+    if urls:
+        for query in queries:
+            result[query] = urls[:]
+    if anysearch_limited(output) or not any(result.values()):
+        for query in queries:
+            result[query] = search_candidate_urls(config, query, max_results=max_results)
+    return result
+
+
+def extract_page(config: dict[str, Any], url: str, use_anysearch: bool = True) -> str:
+    output = run_anysearch(config, ["extract", url], timeout=45) if use_anysearch else ""
+    if output.strip() and not anysearch_limited(output) and output not in {"anysearch_timeout", "anysearch_limited"}:
         return output[:120000]
     try:
-        return html_to_text(http_fetch(url, timeout=30))[:120000]
+        return html_to_text(http_fetch(url, timeout=8))[:120000]
     except Exception as exc:
         append_log(f"备用页面抓取失败: {url} :: {exc}")
-        return output[:120000]
+        return ""
+
+
+def related_urls(url: str, model: dict[str, Any] | None = None) -> list[str]:
+    parsed = urlparse(url if "://" in url else "https://" + url)
+    if not parsed.netloc:
+        return []
+    base = f"{parsed.scheme or 'https'}://{parsed.netloc}"
+    model_terms = [term for term in (model or {}).get("vehicle_terms", []) if len(term) >= 4][:3]
+    paths = [
+        parsed.path or "/",
+        "/contact",
+        "/contact-us",
+        "/pages/contact-us",
+        "/about-us",
+        "/about",
+        "/privacy-policy",
+    ]
+    for term in model_terms:
+        slug = quote_plus(term)
+        paths.extend(
+            [
+                f"/search?q={slug}",
+                f"/?s={slug}",
+                f"/collections/{slug.replace('+', '-')}",
+                f"/product-category/{slug.replace('+', '-')}",
+            ]
+        )
+    urls = []
+    for path in paths:
+        if not path.startswith("/"):
+            path = "/" + path
+        candidate = base + path
+        if candidate not in urls:
+            urls.append(candidate)
+    return urls[:10]
+
+
+def extract_candidate_bundle(config: dict[str, Any], model: dict[str, Any], url: str) -> tuple[str, dict[str, str]]:
+    pieces: list[str] = []
+    page_texts: dict[str, str] = {}
+    empty_or_failed = 0
+    saw_accessory_page = False
+    for index, candidate in enumerate(related_urls(url, model)):
+        host = host_from_url(candidate)
+        if not host or blocked_host(host):
+            continue
+        text = extract_page(config, candidate, use_anysearch=(index == 0))
+        if not text:
+            empty_or_failed += 1
+            if empty_or_failed >= 2:
+                break
+            continue
+        lower = f"{candidate} {text}".lower()
+        if any(term in lower for term in ACCESSORY_TERMS):
+            saw_accessory_page = True
+        if index == 0 and not saw_accessory_page and not any(term in lower for term in SHOP_INTENT_TERMS):
+            return text[:120000], {candidate: text} if text else {}
+        page_texts[candidate] = text
+        pieces.append(f"\nSource URL: {candidate}\n{text}")
+        joined_length = sum(len(piece) for piece in pieces)
+        if joined_length > 120000 or (saw_accessory_page and index >= 1 and EMAIL_RE.search("\n".join(pieces))):
+            break
+    return "\n".join(pieces)[:160000], page_texts
+
+
+def evaluate_candidate_url(
+    config: dict[str, Any],
+    model: dict[str, Any],
+    url: str,
+    existing_emails: set[str],
+    existing_domains: set[str],
+) -> tuple[dict[str, str] | None, str]:
+    if blocked_url(url):
+        return None, "网址被屏蔽"
+    domain = main_domain(url)
+    if domain in existing_domains:
+        return None, "重复域名"
+    text, page_texts = extract_candidate_bundle(config, model, url)
+    if not page_qualifies(model, url, text):
+        return None, "车型或配件证据不足"
+    emails = [email_value.lower() for email_value in EMAIL_RE.findall(text)]
+    selected_email = select_business_email(emails, existing_emails, existing_domains, host_from_url(url))
+    if not selected_email:
+        return None, "未找到可用业务邮箱"
+    email_country = infer_country(f"https://{selected_email.rsplit('@', 1)[-1]}", "")
+    lead = {
+        "company": candidate_company_from_text(url, text),
+        "country": infer_country(url, text) or email_country,
+        "email": selected_email,
+        "website": url,
+        "evidence": next(iter(page_texts.keys()), url),
+    }
+    ok, reason = validate_lead(model, lead, text)
+    if not ok:
+        return None, reason
+    return lead, ""
 
 
 def candidate_company_from_text(url: str, text: str) -> str:
+    title_match = re.search(r"(?im)^\s*(?:#\s*)?(.{3,90})\s*$", text)
+    if title_match:
+        title = clean_company_name(title_match.group(1), url)
+        if title and not looks_like_product_title(title):
+            return title
     for line in text.splitlines():
-        stripped = line.strip(" #*-")
-        if 3 <= len(stripped) <= 80 and not stripped.lower().startswith(("url", "http", "##")):
-            return stripped
+        cleaned = clean_company_name(line, url)
+        if cleaned and not looks_like_product_title(cleaned):
+            return cleaned
     host = host_from_url(url)
     return host.split(".")[0].replace("-", " ").title() if host else "Unknown"
 
 
+def looks_like_product_title(value: str) -> bool:
+    lower = value.lower()
+    product_hits = sum(1 for term in ACCESSORY_TERMS if term in lower)
+    vehicle_hits = sum(1 for term in ("hyundai", "santa fe", "jetour", "ranger", "amarok", "byd", "shark") if term in lower)
+    product_shape = any(token in lower for token in (" for ", " fits ", "compatible", "2024", "2025", "2019", "2020", "mx5"))
+    return product_hits >= 1 and (vehicle_hits >= 1 or product_shape)
+
+
+def clean_company_name(value: str, url: str = "") -> str:
+    text = unescape(normalize(value)).strip(" #*-|")
+    text = re.sub(r"(?i)^source\*\*\s*:?\s*", "", text).strip()
+    text = re.sub(r"(?i)^\[?source\]?\s*:?\s*", "", text).strip()
+    text = re.sub(r"(?i)^title\s*:?\s*", "", text).strip()
+    text = re.sub(r"(?i)^url\s*:?\s*", "", text).strip()
+    if not text or text.startswith(("http://", "https://")):
+        return ""
+    lower = text.lower()
+    if any(lower == prefix or lower.startswith(prefix + " ") for prefix in BAD_COMPANY_PREFIXES):
+        return ""
+    if "@" in text or len(text) < 3 or len(text) > 90:
+        return ""
+    if len(re.sub(r"[^a-zA-Z\u4e00-\u9fff]", "", text)) < 3:
+        return ""
+    host = host_from_url(url)
+    if host and text.lower() in {"home", host, "www." + host}:
+        return ""
+    return text[:90]
+
+
+def model_requirement(model: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    direct_key = normalize(model.get("_key"))
+    if direct_key:
+        return MODEL_REQUIREMENTS.get(direct_key, {})
+    for key, item in load_config().get("models", {}).items():
+        if item.get("label") == model.get("label"):
+            return MODEL_REQUIREMENTS.get(key, {})
+    return {}
+
+
 def page_qualifies(model: dict[str, Any], url: str, text: str) -> bool:
     merged = f"{url} {text}".lower()
+    host = host_from_url(url)
+    if blocked_url(url):
+        return False
+    req = model_requirement(model)
+    if any(host == domain or host.endswith("." + domain) for domain in req.get("must_not_domains", ())):
+        return False
+    if any(term in merged for term in req.get("must_not_text", ())):
+        return False
     vehicle_terms = [term.lower() for term in model.get("vehicle_terms", [])]
+    vehicle_terms.extend(req.get("model_terms", ()))
     has_vehicle = any(term in merged for term in vehicle_terms)
     has_accessory = any(term in merged for term in ACCESSORY_TERMS)
-    return has_vehicle and has_accessory
+    has_shop_intent = any(term in merged for term in SHOP_INTENT_TERMS)
+    return has_vehicle and has_accessory and has_shop_intent
+
+
+def select_business_email(emails: list[str], existing_emails: set[str], existing_domains: set[str], page_host: str) -> str:
+    scored: list[tuple[int, str]] = []
+    for email_value in emails:
+        value = email_value.lower()
+        if not is_valid_email(value):
+            continue
+        email_domain = main_domain(value)
+        if value in existing_emails or email_domain in existing_domains:
+            continue
+        if any(email_domain == domain or email_domain.endswith("." + domain) for domain in NOISE_EMAIL_DOMAINS):
+            continue
+        score = 0
+        local = value.split("@", 1)[0]
+        if email_domain == main_domain(page_host):
+            score += 8
+        if local in {"info", "sales", "contact", "hello", "office", "support", "parts"}:
+            score += 5
+        if local.startswith(("sales", "info", "contact")):
+            score += 2
+        if local in {"accessibility", "privacy", "legal", "careers", "jobs", "newsletter"}:
+            score -= 10
+        scored.append((score, value))
+    if not scored:
+        return ""
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return scored[0][1]
+
+
+def validate_lead(model: dict[str, Any], lead: dict[str, str], text: str, require_page_evidence: bool = True) -> tuple[bool, str]:
+    if not lead.get("company") or lead["company"].lower().startswith("source"):
+        return False, "公司名无效"
+    if not lead.get("email") or not is_valid_email(lead["email"]):
+        return False, "邮箱无效"
+    if not lead.get("website") or blocked_url(lead["website"]):
+        return False, "网址无效"
+    if require_page_evidence and not page_qualifies(model, lead["website"], text):
+        return False, "车型或配件证据不足"
+    country = lead.get("country", "")
+    if country and country in set(model.get("exclude_countries", [])):
+        return False, f"排除国家 {country}"
+    email_domain = lead["email"].rsplit("@", 1)[-1]
+    email_country = infer_country(f"https://{email_domain}", "")
+    if email_country and email_country in set(model.get("exclude_countries", [])):
+        return False, f"邮箱域名属于排除国家 {email_country}"
+    return True, ""
 
 
 def build_dedupe_sets(config: dict[str, Any], model_key: str) -> tuple[set[str], set[str]]:
@@ -1212,6 +1786,10 @@ def build_dedupe_sets(config: dict[str, Any], model_key: str) -> tuple[set[str],
     return emails, domains
 
 
+def model_with_key(config: dict[str, Any], model_key: str) -> dict[str, Any]:
+    return {**config["models"][model_key], "_key": model_key}
+
+
 def lead_search_queries(model: dict[str, Any]) -> list[str]:
     queries: list[str] = []
 
@@ -1221,6 +1799,9 @@ def lead_search_queries(model: dict[str, Any]) -> list[str]:
             queries.append(text)
 
     for query in model.get("search_queries", []):
+        add(query)
+
+    for query in MODEL_SEARCH_SEEDS.get(normalize(model.get("_key")), ()):
         add(query)
 
     vehicle_terms = [term for term in model.get("vehicle_terms", []) if len(term) >= 4][:4]
@@ -1236,56 +1817,61 @@ def lead_search_queries(model: dict[str, Any]) -> list[str]:
 
 
 def collect_for_model(config: dict[str, Any], model_key: str, target_count: int) -> dict[str, Any]:
-    model = config["models"][model_key]
+    model = model_with_key(config, model_key)
     append_log(f"开始获客: {model['label']} 目标 {target_count}")
     existing_emails, existing_domains = build_dedupe_sets(config, model_key)
     found: list[dict[str, str]] = []
+    rejected: list[dict[str, str]] = []
     seen_urls: set[str] = set()
-    queries = lead_search_queries(model)
-    for query_text in queries:
+
+    def try_url(url: str) -> None:
+        if len(found) >= target_count or url in seen_urls:
+            return
+        seen_urls.add(url)
+        lead, reason = evaluate_candidate_url(config, model, url, existing_emails, existing_domains)
+        if not lead:
+            append_log(f"跳过 {model['label']} {url}: {reason}")
+            if len(rejected) < 40:
+                rejected.append({"url": url, "reason": reason})
+            return
+        found.append(lead)
+        existing_emails.add(lead["email"])
+        existing_domains.add(main_domain(lead["website"]))
+        existing_domains.add(main_domain(lead["email"]))
+        append_log(f"{model['label']} 新客户 {len(found)}/{target_count}: {lead['company']} {lead['email']}")
+
+    for seed_url in MODEL_SEED_URLS.get(model_key, ()):
+        try_url(seed_url)
         if len(found) >= target_count:
             break
-        for url in search_candidate_urls(config, query_text, max_results=8):
+
+    queries = lead_search_queries(model)
+    query_batches = [queries[index : index + 4] for index in range(0, len(queries), 4)]
+    for query_batch in query_batches:
+        if len(found) >= target_count:
+            break
+        batch_results = batch_search_candidate_urls(config, query_batch, max_results=10)
+        batch_urls: list[str] = []
+        for values in batch_results.values():
+            for value in values:
+                if value not in batch_urls:
+                    batch_urls.append(value)
+        urls = batch_urls
+        if not urls:
+            for query_text in query_batch:
+                for value in search_candidate_urls(config, query_text, max_results=10):
+                    if value not in urls:
+                        urls.append(value)
+        for url in urls:
             if len(found) >= target_count:
                 break
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            domain = main_domain(url)
-            if domain in existing_domains:
-                continue
-            text = extract_page(config, url)
-            if not page_qualifies(model, url, text):
-                continue
-            emails = [email_value.lower() for email_value in EMAIL_RE.findall(text) if is_valid_email(email_value)]
-            unique_emails = []
-            for email_value in emails:
-                email_domain = main_domain(email_value)
-                if email_value in existing_emails or email_domain in existing_domains:
-                    continue
-                if email_value not in unique_emails:
-                    unique_emails.append(email_value)
-            if not unique_emails:
-                continue
-            country = infer_country(url, text)
-            if country and country in set(model.get("exclude_countries", [])):
-                append_log(f"跳过 {model['label']} {url}: 排除国家 {country}")
-                continue
-            lead = {
-                "company": candidate_company_from_text(url, text),
-                "country": country,
-                "email": unique_emails[0],
-                "website": url,
-                "evidence": url,
-            }
-            found.append(lead)
-            existing_emails.add(lead["email"])
-            existing_domains.add(domain)
-            existing_domains.add(main_domain(lead["email"]))
-            append_log(f"{model['label']} 新客户 {len(found)}/{target_count}: {lead['company']} {lead['email']}")
+            try_url(url)
     write_result = append_leads(config, model_key, found)
     written = write_result["count"]
-    append_log(f"完成获客: {model['label']} 写入 {written}/{target_count}")
+    if written < target_count:
+        append_log(f"完成获客: {model['label']} 写入 {written}/{target_count}，不足原因样本: {rejected[:8]}")
+    else:
+        append_log(f"完成获客: {model['label']} 写入 {written}/{target_count}")
     return {
         "model": model_key,
         "label": model["label"],
@@ -1293,16 +1879,66 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
         "written": write_result["count"],
         "written_emails": write_result["emails"],
         "leads": found,
+        "shortfall": max(0, target_count - written),
+        "rejected_sample": rejected[:20],
+    }
+
+
+def preview_collect_for_model(config: dict[str, Any], model_key: str, target_count: int = 10, query_limit: int = 8) -> dict[str, Any]:
+    model = model_with_key(config, model_key)
+    existing_emails, existing_domains = build_dedupe_sets(config, model_key)
+    found: list[dict[str, str]] = []
+    rejected: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+
+    def try_url(url: str) -> None:
+        if len(found) >= target_count or url in seen_urls:
+            return
+        seen_urls.add(url)
+        lead, reason = evaluate_candidate_url(config, model, url, existing_emails, existing_domains)
+        if lead:
+            found.append(lead)
+            existing_emails.add(lead["email"])
+            existing_domains.add(main_domain(lead["website"]))
+            existing_domains.add(main_domain(lead["email"]))
+        elif len(rejected) < 40:
+            rejected.append({"url": url, "reason": reason})
+
+    for seed_url in MODEL_SEED_URLS.get(model_key, ()):
+        try_url(seed_url)
+        if len(found) >= target_count:
+            break
+
+    queries = lead_search_queries(model)[:query_limit]
+    for query in queries:
+        if len(found) >= target_count:
+            break
+        for url in search_candidate_urls(config, query, max_results=8):
+            if len(found) >= target_count:
+                break
+            try_url(url)
+    return {
+        "model": model_key,
+        "label": model["label"],
+        "target": target_count,
+        "queries_checked": len(queries),
+        "found": found,
+        "rejected_sample": rejected[:20],
     }
 
 
 def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, str]]) -> dict[str, Any]:
     if not leads:
         return {"count": 0, "emails": []}
+    model = model_with_key(config, model_key)
     path, workbook, sheet, headers, mapping = open_model_sheet(config, model_key, data_only=False)
     try:
         if not mapping.get("email"):
             raise RuntimeError("找不到邮箱列")
+        required = ("company", "country", "email", "website")
+        missing = [field for field in required if not mapping.get(field)]
+        if missing:
+            raise RuntimeError(f"找不到必要列: {', '.join(missing)}")
         backup = path.with_name(f"{path.stem}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}{path.suffix}")
         shutil.copy2(path, backup)
         existing_emails = set()
@@ -1320,19 +1956,29 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
         written = 0
         written_emails: list[str] = []
         for lead in leads:
-            email_value = lead["email"].lower()
+            lead = {
+                **lead,
+                "company": clean_company_name(lead.get("company", ""), lead.get("website", "")),
+                "email": normalize(lead.get("email")).lower(),
+                "website": normalize(lead.get("website")),
+                "country": normalize(lead.get("country")),
+            }
+            if not lead["country"]:
+                lead["country"] = infer_country(f"https://{lead['email'].rsplit('@', 1)[-1]}", "")
+            ok, reason = validate_lead(model, lead, f"{lead['company']} {lead['website']}", require_page_evidence=False)
+            if not ok:
+                append_log(f"写入前跳过 {model['label']} {lead.get('website', '')}: {reason}")
+                continue
+            email_value = lead["email"]
             website_domain = main_domain(lead["website"])
             email_domain = main_domain(email_value)
             if email_value in existing_emails or website_domain in existing_domains or email_domain in existing_domains:
                 continue
             row = sheet.max_row + 1
-            if mapping.get("company"):
-                sheet.cell(row, mapping["company"]).value = lead["company"]
-            if mapping.get("country"):
-                sheet.cell(row, mapping["country"]).value = lead["country"]
+            sheet.cell(row, mapping["company"]).value = lead["company"]
+            sheet.cell(row, mapping["country"]).value = lead["country"]
             sheet.cell(row, mapping["email"]).value = lead["email"]
-            if mapping.get("website"):
-                sheet.cell(row, mapping["website"]).value = lead["website"]
+            sheet.cell(row, mapping["website"]).value = lead["website"]
             existing_emails.add(email_value)
             existing_domains.add(website_domain)
             existing_domains.add(email_domain)
@@ -1340,6 +1986,47 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
             written_emails.append(email_value)
         workbook.save(path)
         return {"count": written, "emails": written_emails}
+    finally:
+        workbook.close()
+
+
+def cleanup_blocked_leads(config: dict[str, Any], model_key: str) -> dict[str, Any]:
+    model = model_with_key(config, model_key)
+    path, workbook, sheet, _headers, mapping = open_model_sheet(config, model_key, data_only=False)
+    try:
+        email_col = mapping.get("email")
+        website_col = mapping.get("website")
+        if not email_col or not website_col:
+            return {"model": model_key, "removed": 0, "rows": []}
+        backup = path.with_name(f"{path.stem}.cleanup-bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}{path.suffix}")
+        rows_to_delete: list[tuple[int, str, str]] = []
+        for row_number in range(2, sheet.max_row + 1):
+            email_value = normalize(sheet.cell(row_number, email_col).value).lower()
+            website = normalize(sheet.cell(row_number, website_col).value)
+            if not email_value and not website:
+                continue
+            reason = ""
+            if website and blocked_host(host_from_url(website)):
+                reason = "屏蔽主机"
+            elif email_value and is_valid_email(email_value):
+                email_country = infer_country(f"https://{email_value.rsplit('@', 1)[-1]}", "")
+                if email_country and email_country in set(model.get("exclude_countries", [])):
+                    reason = f"排除国家邮箱 {email_country}"
+            if reason:
+                rows_to_delete.append((row_number, website or email_value, reason))
+        if not rows_to_delete:
+            return {"model": model_key, "removed": 0, "rows": []}
+        shutil.copy2(path, backup)
+        for row_number, _value, _reason in reversed(rows_to_delete):
+            sheet.delete_rows(row_number, 1)
+        workbook.save(path)
+        append_log(f"清理旧获客噪声: {model['label']} 删除 {len(rows_to_delete)} 行 backup={backup}")
+        return {
+            "model": model_key,
+            "removed": len(rows_to_delete),
+            "backup": str(backup),
+            "rows": [{"row": row, "value": value, "reason": reason} for row, value, reason in rows_to_delete],
+        }
     finally:
         workbook.close()
 
@@ -1372,7 +2059,9 @@ def daily_collect(limit_per_model: int) -> dict[str, Any]:
     config = load_config()
     results = []
     for key in config.get("models", {}):
+        cleanup = cleanup_blocked_leads(config, key)
         result = collect_for_model(config, key, limit_per_model)
+        result["cleanup"] = cleanup
         result["auto_sent"] = []
         results.append(result)
     return {"daily_limit": limit_per_model, "results": results}
@@ -2301,6 +2990,16 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 body = self.read_body()
                 limit = max(1, min(50, int(body.get("limit", 10))))
                 self.send_json(run_task("daily_collect", daily_collect, limit))
+                return
+            if self.path == "/api/collect-preview":
+                body = self.read_body()
+                model_key = body.get("model")
+                config = load_config()
+                if model_key not in config.get("models", {}):
+                    raise RuntimeError("未知车型")
+                limit = max(1, min(20, int(body.get("limit", 10))))
+                query_limit = max(1, min(20, int(body.get("query_limit", 8))))
+                self.send_json(preview_collect_for_model(config, model_key, limit, query_limit))
                 return
             if self.path == "/api/send":
                 body = self.read_body()

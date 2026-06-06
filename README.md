@@ -24,6 +24,7 @@ http://127.0.0.1:8765
 - 启动网页后自动刷新五个类别客户数量：Ranger T9、BYD Shark 6、VW Amarok、Santa Fe、Jetour T2/G700。
 - `ranegrt9` 和 `ranger t9` 都写入 `C:\1\Chrome\work\excel\ranger\ranger.xlsx`。
 - `每日获客` 按钮：每个车型目标新增 10 个客户，写入对应 Excel；写入前按邮箱和主域名去重，并生成备份。
+- 每日获客不会为凑满 10 个降低质量；如果可用新域名不足，会返回缺口和拒绝原因样本，避免把官方站、新闻页、平台页、无关 Santa Fe 城市商家、重复域名或排除国家写入表格。
 - `发送邮件` 按钮：选择车型、数量和发件邮箱后调用项目内 `outreach_package` 发送脚本。
 - 邮件监控：自动轮询 3 个 IMAP 邮箱，发现退信后用备用邮箱重发一次；备用发送失败才计入“今日失效”。
 - 感兴趣客户：按关键词识别回复，写入 `runtime/intervention.json` 并显示在“需要我介入”模块。
