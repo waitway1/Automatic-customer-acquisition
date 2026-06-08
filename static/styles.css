@@ -121,8 +121,8 @@ button:disabled {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 28px;
+  justify-content: flex-start;
+  gap: 18px;
   padding: 24px 18px;
   background: var(--rail);
   color: var(--rail-ink);
@@ -159,6 +159,13 @@ button:disabled {
 .actions {
   display: grid;
   gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid oklch(1 0 0 / 0.1);
+}
+
+.actions button {
+  width: 100%;
 }
 
 .secondary,
@@ -755,6 +762,9 @@ input:hover {
 
   .actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
   }
 
   main {
