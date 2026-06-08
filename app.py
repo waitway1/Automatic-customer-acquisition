@@ -334,6 +334,23 @@ NOISE_EMAIL_DOMAINS = (
     "autoplay.co.nz",
     "shop.app",
 )
+SHARED_EMAIL_DOMAINS = {
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "msn.com",
+    "yahoo.com",
+    "yahoo.co.uk",
+    "icloud.com",
+    "me.com",
+    "qq.com",
+    "163.com",
+    "126.com",
+    "proton.me",
+    "protonmail.com",
+}
 MODEL_REQUIREMENTS = {
     "santa_fe": {
         "model_terms": ("santa fe", "santafe", "santa-fe", "mx5", "xrt"),
@@ -352,7 +369,14 @@ MODEL_REQUIREMENTS = {
     },
     "vw_amarok": {
         "model_terms": ("amarok", "volkswagen amarok", "vw amarok"),
-        "must_not_domains": ("volkswagen.com", "vw.com"),
+        "must_not_domains": (
+            "volkswagen.com",
+            "vw.com",
+            "volkswagen-vans.co.uk",
+            "vw.co.za",
+            "volkswagen.com.au",
+            "store.volkswagen.com.au",
+        ),
         "must_not_text": ("drivergear", "company store"),
     },
     "ranger_t9": {
@@ -362,6 +386,21 @@ MODEL_REQUIREMENTS = {
     },
 }
 MODEL_SEED_URLS = {
+    "byd_shark6": (
+        "https://www.accessoriesforbyd.com/collections/byd-shark-6-accessories",
+        "https://www.fbonline4x4accessories.co.za/products/byd-shark-6-fender-flares/",
+        "https://www.durax.co.nz/collections/byd-shark-accessories",
+        "https://traxindustries.co.za/product/byd-shark-6-nudge-bar/",
+    ),
+    "vw_amarok": (
+        "https://audiomax.co.za/product/vw-amarok-double-cab-platinum-canopy/",
+        "https://bakkieshield.co.za/",
+        "https://tonneauking.co.za/volkswagen-products/",
+        "https://www.seikel.co.za/4x4-accessories-south-africa/",
+        "https://www.midrandcanopies.co.za/vw-amarok-canopies/",
+        "https://www.alphaaccessories.co.za/products/vw-amarok-wild-aluminium-canopy",
+        "https://www.fbonline4x4accessories.co.za/products/alu-cab-contour-canopy-vw-amarok-dc-black/",
+    ),
     "santa_fe": (
         "https://www.psashop.cz/en/santa-fe-mx5-prislusenstvi/",
         "https://carromats.ca/products/hyundai-santa-fe-gen4-floor-mats",
@@ -387,6 +426,32 @@ MODEL_SEED_URLS = {
     ),
 }
 MODEL_SEARCH_SEEDS = {
+    "byd_shark6": (
+        '"BYD Shark" "roof light" contact email',
+        '"BYD Shark" "light bar" shop email',
+        '"BYD Shark 6" "fender flares" contact',
+        '"BYD Shark" "wheel arch" shop email',
+        '"BYD Shark" "side steps" contact email',
+        '"BYD Shark" "running boards" dealer email',
+        '"BYD Shark" "estribos" contact',
+        '"BYD Shark" "barra led" email',
+        'site:.mx "BYD Shark" accessories email',
+        'site:.br "BYD Shark" accesorios email',
+        'site:.nz "BYD Shark" accessories contact',
+        'site:.za "BYD Shark" accessories email',
+    ),
+    "vw_amarok": (
+        "VW Amarok canopy South Africa email",
+        "VW Amarok side steps South Africa contact",
+        "VW Amarok bull bar South Africa email",
+        "Volkswagen Amarok accessories New Zealand contact",
+        "VW Amarok roof rack Germany email",
+        "VW Amarok fender flares Europe contact",
+        "Amarok accesorios Argentina email",
+        "Amarok accessories Brazil contact",
+        "Amarok running boards online shop email",
+        "Amarok tonneau cover dealer contact",
+    ),
     "santa_fe": (
         "Hyundai Santa Fe MX5 accessories contact email",
         "Hyundai Santa Fe 2024 roof rack store contact",
@@ -820,6 +885,11 @@ def main_domain(value: str) -> str:
     if suffix2 in {"co.uk", "com.au", "co.nz", "co.za", "com.br", "com.mx", "com.cn", "com.hk", "com.tw"}:
         return suffix3
     return ".".join(parts[-2:])
+
+
+def email_domain_for_dedupe(email_value: str) -> str:
+    domain = main_domain(email_value)
+    return "" if domain in SHARED_EMAIL_DOMAINS else domain
 
 
 def infer_country(url: str, text: str = "") -> str:
@@ -1459,28 +1529,80 @@ def parse_search_results(output: str) -> list[str]:
     return clean
 
 
-def query_relevant_url(query: str, url: str, context: str = "") -> bool:
+def parse_search_result_items(output: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in output.splitlines():
+        if line.startswith("### "):
+            if current:
+                items.append(current)
+            current = {"title": line[4:].strip(), "url": "", "text": ""}
+            continue
+        if current is None:
+            continue
+        if "**URL**:" in line:
+            current["url"] = clean_result_url(line.split("**URL**:", 1)[1].strip())
+        else:
+            current["text"] = f"{current.get('text', '')}\n{line}".strip()
+    if current:
+        items.append(current)
+    clean: list[dict[str, str]] = []
+    for item in items:
+        url = normalize(item.get("url"))
+        if not url or blocked_url(url):
+            continue
+        item["url"] = url
+        clean.append(item)
+    return clean
+
+
+def parse_batch_search_results(output: str, queries: list[str]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {query: [] for query in queries}
+    query_markers: list[tuple[int, str]] = []
+    for match in re.finditer(r"(?m)^## Query\s+\d+:\s*(.+?)\s*$", output):
+        title = match.group(1).strip()
+        matched_query = next((query for query in queries if title.lower() == query.lower()), "")
+        if matched_query:
+            query_markers.append((match.start(), matched_query))
+    if not query_markers:
+        return result
+    query_markers.append((len(output), ""))
+    for index, (start, query) in enumerate(query_markers[:-1]):
+        end = query_markers[index + 1][0]
+        result[query] = parse_search_results(output[start:end])
+    return result
+
+
+def parse_batch_search_result_items(output: str, queries: list[str]) -> dict[str, list[dict[str, str]]]:
+    result: dict[str, list[dict[str, str]]] = {query: [] for query in queries}
+    query_markers: list[tuple[int, str]] = []
+    for match in re.finditer(r"(?m)^## Query\s+\d+:\s*(.+?)\s*$", output):
+        title = match.group(1).strip()
+        matched_query = next((query for query in queries if title.lower() == query.lower()), "")
+        if matched_query:
+            query_markers.append((match.start(), matched_query))
+    if not query_markers:
+        return result
+    query_markers.append((len(output), ""))
+    for index, (start, query) in enumerate(query_markers[:-1]):
+        end = query_markers[index + 1][0]
+        result[query] = parse_search_result_items(output[start:end])
+    return result
+
+
+def query_relevant_url(query: str, url: str, context: str = "", model: dict[str, Any] | None = None) -> bool:
     source = re.sub(r"[^a-z0-9]+", " ", f"{url} {context}".lower())
-    vehicle_tokens = (
-        "ranger",
-        "ford ranger",
-        "byd shark",
-        "shark 6",
-        "amarok",
-        "volkswagen amarok",
-        "santa fe",
-        "santafe",
-        "mx5",
-        "jetour",
-        "g700",
-        "traveller",
-        "traveler",
-    )
+    if model:
+        req = model_requirement(model)
+        vehicle_tokens = [term.lower() for term in model.get("vehicle_terms", [])]
+        vehicle_tokens.extend(req.get("model_terms", ()))
+    else:
+        vehicle_tokens = re.findall(r"[a-z0-9][a-z0-9 -]{2,}", query.lower())
     accessory_tokens = ACCESSORY_TERMS + ("4x4", "offroad", "off road", "aftermarket")
     return any(token in source for token in vehicle_tokens) and any(token.replace("-", " ") in source for token in accessory_tokens)
 
 
-def parse_fallback_search_results(query: str, output: str) -> list[str]:
+def parse_fallback_search_results(query: str, output: str, model: dict[str, Any] | None = None) -> list[str]:
     candidates: list[tuple[str, str]] = []
     for item in re.findall(r"(?is)<item\b.*?</item>", output):
         link_match = re.search(r"(?is)<link>\s*(.*?)\s*</link>", item)
@@ -1495,14 +1617,14 @@ def parse_fallback_search_results(query: str, output: str) -> list[str]:
         url = clean_result_url(raw_url)
         if blocked_url(url):
             continue
-        if not query_relevant_url(query, url, context):
+        if not query_relevant_url(query, url, context, model):
             continue
         if url not in clean:
             clean.append(url)
     return clean
 
 
-def fallback_search_urls(query: str, max_results: int = 12) -> list[str]:
+def fallback_search_urls(query: str, max_results: int = 12, model: dict[str, Any] | None = None) -> list[str]:
     urls: list[str] = []
     search_urls = [
         f"https://www.bing.com/search?format=rss&q={quote_plus(query)}",
@@ -1517,7 +1639,7 @@ def fallback_search_urls(query: str, max_results: int = 12) -> list[str]:
         except Exception as exc:
             append_log(f"备用搜索失败: {query} :: {exc}")
             continue
-        for url in parse_fallback_search_results(query, output):
+        for url in parse_fallback_search_results(query, output, model):
             if url not in urls:
                 urls.append(url)
             if len(urls) >= max_results:
@@ -1525,11 +1647,11 @@ def fallback_search_urls(query: str, max_results: int = 12) -> list[str]:
     return urls
 
 
-def search_candidate_urls(config: dict[str, Any], query: str, max_results: int = 12) -> list[str]:
+def search_candidate_urls(config: dict[str, Any], query: str, max_results: int = 12, model: dict[str, Any] | None = None) -> list[str]:
     output = run_anysearch(config, ["search", query, "--max_results", str(max_results)], timeout=25)
     urls = parse_search_results(output)
-    if anysearch_limited(output) or len(urls) < max_results:
-        for url in fallback_search_urls(query, max_results=max_results):
+    if anysearch_limited(output) or not urls:
+        for url in fallback_search_urls(query, max_results=max_results, model=model):
             if url not in urls:
                 urls.append(url)
             if len(urls) >= max_results:
@@ -1537,19 +1659,33 @@ def search_candidate_urls(config: dict[str, Any], query: str, max_results: int =
     return urls[:max_results]
 
 
-def batch_search_candidate_urls(config: dict[str, Any], queries: list[str], max_results: int = 8) -> dict[str, list[str]]:
+def batch_search_candidate_urls(config: dict[str, Any], queries: list[str], max_results: int = 8, model: dict[str, Any] | None = None) -> dict[str, list[str]]:
     if not queries:
         return {}
     payload = json.dumps([{"query": query, "max_results": max_results} for query in queries], ensure_ascii=False)
     output = run_anysearch(config, ["batch_search", "--queries", payload], timeout=35)
-    urls = parse_search_results(output)
-    result: dict[str, list[str]] = {query: [] for query in queries}
-    if urls:
-        for query in queries:
-            result[query] = urls[:]
+    result = parse_batch_search_results(output, queries)
     if anysearch_limited(output) or not any(result.values()):
         for query in queries:
-            result[query] = search_candidate_urls(config, query, max_results=max_results)
+            result[query] = search_candidate_urls(config, query, max_results=max_results, model=model)
+    return result
+
+
+def batch_search_candidate_items(config: dict[str, Any], queries: list[str], max_results: int = 8, model: dict[str, Any] | None = None) -> dict[str, list[dict[str, str]]]:
+    if not queries:
+        return {}
+    payload = json.dumps([{"query": query, "max_results": max_results} for query in queries], ensure_ascii=False)
+    output = run_anysearch(config, ["batch_search", "--queries", payload], timeout=35)
+    result = parse_batch_search_result_items(output, queries)
+    if anysearch_limited(output) or not any(result.values()):
+        for query in queries:
+            search_output = run_anysearch(config, ["search", query, "--max_results", str(max_results)], timeout=25)
+            result[query] = parse_search_result_items(search_output)
+            if anysearch_limited(search_output) or not result[query]:
+                result[query].extend(
+                    {"title": "", "url": url, "text": ""}
+                    for url in fallback_search_urls(query, max_results=max_results, model=model)
+                )
     return result
 
 
@@ -1572,6 +1708,7 @@ def related_urls(url: str, model: dict[str, Any] | None = None) -> list[str]:
     model_terms = [term for term in (model or {}).get("vehicle_terms", []) if len(term) >= 4][:3]
     paths = [
         parsed.path or "/",
+        "/pages/contact",
         "/contact",
         "/contact-us",
         "/pages/contact-us",
@@ -1611,7 +1748,7 @@ def extract_candidate_bundle(config: dict[str, Any], model: dict[str, Any], url:
         text = extract_page(config, candidate, use_anysearch=(index == 0))
         if not text:
             empty_or_failed += 1
-            if empty_or_failed >= 2:
+            if empty_or_failed >= 4:
                 break
             continue
         lower = f"{candidate} {text}".lower()
@@ -1660,6 +1797,38 @@ def evaluate_candidate_url(
     return lead, ""
 
 
+def evaluate_search_item(
+    model: dict[str, Any],
+    item: dict[str, str],
+    existing_emails: set[str],
+    existing_domains: set[str],
+) -> tuple[dict[str, str] | None, str]:
+    url = normalize(item.get("url"))
+    if blocked_url(url):
+        return None, "网址被屏蔽"
+    domain = main_domain(url)
+    if domain in existing_domains:
+        return None, "重复域名"
+    text = f"{item.get('title', '')}\n{item.get('text', '')}"
+    if not page_qualifies(model, url, text):
+        return None, "车型或配件证据不足"
+    emails = [email_value.lower() for email_value in EMAIL_RE.findall(text)]
+    selected_email = select_business_email(emails, existing_emails, existing_domains, host_from_url(url))
+    if not selected_email:
+        return None, "摘要未包含可用业务邮箱"
+    lead = {
+        "company": clean_company_name(item.get("title", ""), url) or candidate_company_from_text(url, text),
+        "country": infer_country(url, text) or infer_country(f"https://{selected_email.rsplit('@', 1)[-1]}", ""),
+        "email": selected_email,
+        "website": url,
+        "evidence": url,
+    }
+    ok, reason = validate_lead(model, lead, text)
+    if not ok:
+        return None, reason
+    return lead, ""
+
+
 def candidate_company_from_text(url: str, text: str) -> str:
     title_match = re.search(r"(?im)^\s*(?:#\s*)?(.{3,90})\s*$", text)
     if title_match:
@@ -1684,11 +1853,16 @@ def looks_like_product_title(value: str) -> bool:
 
 def clean_company_name(value: str, url: str = "") -> str:
     text = unescape(normalize(value)).strip(" #*-|")
+    markdown_link = re.fullmatch(r"\[([^\]]+)\]\((https?://[^)]+)\)", text, flags=re.I)
+    if markdown_link:
+        text = markdown_link.group(1).strip()
     text = re.sub(r"(?i)^source\*\*\s*:?\s*", "", text).strip()
     text = re.sub(r"(?i)^\[?source\]?\s*:?\s*", "", text).strip()
     text = re.sub(r"(?i)^title\s*:?\s*", "", text).strip()
     text = re.sub(r"(?i)^url\s*:?\s*", "", text).strip()
     if not text or text.startswith(("http://", "https://")):
+        return ""
+    if re.fullmatch(r"(?i)(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+/?", text):
         return ""
     lower = text.lower()
     if any(lower == prefix or lower.startswith(prefix + " ") for prefix in BAD_COMPANY_PREFIXES):
@@ -1738,7 +1912,8 @@ def select_business_email(emails: list[str], existing_emails: set[str], existing
         if not is_valid_email(value):
             continue
         email_domain = main_domain(value)
-        if value in existing_emails or email_domain in existing_domains:
+        dedupe_domain = email_domain_for_dedupe(value)
+        if value in existing_emails or (dedupe_domain and dedupe_domain in existing_domains):
             continue
         if any(email_domain == domain or email_domain.endswith("." + domain) for domain in NOISE_EMAIL_DOMAINS):
             continue
@@ -1782,7 +1957,7 @@ def build_dedupe_sets(config: dict[str, Any], model_key: str) -> tuple[set[str],
     rows = read_model_rows(config, model_key)
     emails = {row["email"].strip().lower() for row in rows if row.get("email")}
     domains = {main_domain(row["website"]) for row in rows if row.get("website")}
-    domains |= {main_domain(row["email"]) for row in rows if row.get("email")}
+    domains |= {email_domain_for_dedupe(row["email"]) for row in rows if row.get("email")}
     domains.discard("")
     return emails, domains
 
@@ -1825,6 +2000,15 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
     rejected: list[dict[str, str]] = []
     seen_urls: set[str] = set()
 
+    def accept_lead(lead: dict[str, str]) -> None:
+        found.append(lead)
+        existing_emails.add(lead["email"])
+        existing_domains.add(main_domain(lead["website"]))
+        email_domain = email_domain_for_dedupe(lead["email"])
+        if email_domain:
+            existing_domains.add(email_domain)
+        append_log(f"{model['label']} new lead {len(found)}/{target_count}: {lead['company']} {lead['email']}")
+
     def try_url(url: str) -> None:
         if len(found) >= target_count or url in seen_urls:
             return
@@ -1838,8 +2022,24 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
         found.append(lead)
         existing_emails.add(lead["email"])
         existing_domains.add(main_domain(lead["website"]))
-        existing_domains.add(main_domain(lead["email"]))
+        email_domain = email_domain_for_dedupe(lead["email"])
+        if email_domain:
+            existing_domains.add(email_domain)
         append_log(f"{model['label']} 新客户 {len(found)}/{target_count}: {lead['company']} {lead['email']}")
+
+    def try_search_item(item: dict[str, str]) -> None:
+        url = normalize(item.get("url"))
+        if len(found) >= target_count or not url or url in seen_urls:
+            return
+        lead, reason = evaluate_search_item(model, item, existing_emails, existing_domains)
+        if lead:
+            seen_urls.add(url)
+            accept_lead(lead)
+            return
+        if reason != "摘要未包含可用业务邮箱":
+            append_log(f"skip {model['label']} {url}: {reason}")
+            if len(rejected) < 40:
+                rejected.append({"url": url, "reason": reason})
 
     for seed_url in MODEL_SEED_URLS.get(model_key, ()):
         try_url(seed_url)
@@ -1851,16 +2051,22 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
     for query_batch in query_batches:
         if len(found) >= target_count:
             break
-        batch_results = batch_search_candidate_urls(config, query_batch, max_results=10)
+        batch_items = batch_search_candidate_items(config, query_batch, max_results=10, model=model)
         batch_urls: list[str] = []
-        for values in batch_results.values():
-            for value in values:
-                if value not in batch_urls:
+        for values in batch_items.values():
+            for item in values:
+                try_search_item(item)
+                value = normalize(item.get("url"))
+                if value and value not in batch_urls:
                     batch_urls.append(value)
+                if len(found) >= target_count:
+                    break
+            if len(found) >= target_count:
+                break
         urls = batch_urls
         if not urls:
             for query_text in query_batch:
-                for value in search_candidate_urls(config, query_text, max_results=10):
+                for value in search_candidate_urls(config, query_text, max_results=10, model=model):
                     if value not in urls:
                         urls.append(value)
         for url in urls:
@@ -1901,7 +2107,9 @@ def preview_collect_for_model(config: dict[str, Any], model_key: str, target_cou
             found.append(lead)
             existing_emails.add(lead["email"])
             existing_domains.add(main_domain(lead["website"]))
-            existing_domains.add(main_domain(lead["email"]))
+            email_domain = email_domain_for_dedupe(lead["email"])
+            if email_domain:
+                existing_domains.add(email_domain)
         elif len(rejected) < 40:
             rejected.append({"url": url, "reason": reason})
 
@@ -1914,7 +2122,7 @@ def preview_collect_for_model(config: dict[str, Any], model_key: str, target_cou
     for query in queries:
         if len(found) >= target_count:
             break
-        for url in search_candidate_urls(config, query, max_results=8):
+        for url in search_candidate_urls(config, query, max_results=8, model=model):
             if len(found) >= target_count:
                 break
             try_url(url)
@@ -1951,7 +2159,9 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
             website_value = normalize(sheet.cell(row_number, website_col).value) if website_col else ""
             if email_value:
                 existing_emails.add(email_value)
-                existing_domains.add(main_domain(email_value))
+                email_domain = email_domain_for_dedupe(email_value)
+                if email_domain:
+                    existing_domains.add(email_domain)
             if website_value:
                 existing_domains.add(main_domain(website_value))
         written = 0
@@ -1972,8 +2182,8 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
                 continue
             email_value = lead["email"]
             website_domain = main_domain(lead["website"])
-            email_domain = main_domain(email_value)
-            if email_value in existing_emails or website_domain in existing_domains or email_domain in existing_domains:
+            email_domain = email_domain_for_dedupe(email_value)
+            if email_value in existing_emails or website_domain in existing_domains or (email_domain and email_domain in existing_domains):
                 continue
             row = sheet.max_row + 1
             sheet.cell(row, mapping["company"]).value = lead["company"]
@@ -1982,7 +2192,8 @@ def append_leads(config: dict[str, Any], model_key: str, leads: list[dict[str, s
             sheet.cell(row, mapping["website"]).value = lead["website"]
             existing_emails.add(email_value)
             existing_domains.add(website_domain)
-            existing_domains.add(email_domain)
+            if email_domain:
+                existing_domains.add(email_domain)
             written += 1
             written_emails.append(email_value)
         workbook.save(path)
