@@ -273,6 +273,7 @@ function renderIntervention(items) {
         <strong>${escapeHtml(shortText(item.snippet || item.body || ""))}</strong>
       </button>
       <p class="subtle">${escapeHtml(item.time || "")}</p>
+      ${item.moved_to_followup ? `<span class="followBadge">已移入跟进</span>` : ""}
     `;
     node.querySelector("[data-open]").addEventListener("click", () => openMailModal(item, { type: "intervention" }));
     list.appendChild(node);
@@ -331,6 +332,10 @@ async function openMailModal(item, options = {}) {
   $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
   $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
   $("markReadBtn").hidden = !["mailbox", "intervention"].includes(options.type);
+  const moveButton = $("moveFollowupBtn");
+  moveButton.hidden = options.type !== "intervention";
+  moveButton.disabled = Boolean(item.moved_to_followup);
+  moveButton.textContent = item.moved_to_followup ? "已移入跟进" : "移入跟进";
   if (typeof modal.showModal === "function" && !modal.open) {
     modal.showModal();
   } else {
@@ -348,6 +353,8 @@ function closeMailModal() {
   state.modalItem = null;
   state.modalOptions = {};
   $("markReadBtn").hidden = true;
+  $("moveFollowupBtn").hidden = true;
+  $("moveFollowupBtn").disabled = false;
 }
 
 async function markCurrentMailRead() {
@@ -385,6 +392,33 @@ async function markCurrentMailRead() {
     renderIntervention(state.interventions);
     renderMailAccounts(state.mailAccounts);
     refresh();
+  }
+}
+
+async function moveCurrentInterventionToFollowup() {
+  const item = state.modalItem;
+  const options = state.modalOptions || {};
+  if (!item || options.type !== "intervention") return;
+  const button = $("moveFollowupBtn");
+  button.disabled = true;
+  try {
+    const result = await api("/api/intervention/followup", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    const current = state.interventions.find((entry) => entry.id === item.id);
+    if (current) {
+      current.moved_to_followup = Boolean(result.moved || result.already_moved);
+      current.model = result.model || current.model;
+      current.email = result.email || current.email;
+    }
+    item.moved_to_followup = true;
+    button.textContent = "已移入跟进";
+    renderIntervention(state.interventions);
+    refresh();
+  } catch (error) {
+    button.disabled = false;
+    alert(error.message || "移入跟进失败");
   }
 }
 
@@ -487,6 +521,7 @@ $("mailGrid").addEventListener("click", (event) => {
   if (message) openMailModal(message, { type: "mailbox", accountKey });
 });
 $("markReadBtn").addEventListener("click", markCurrentMailRead);
+$("moveFollowupBtn").addEventListener("click", moveCurrentInterventionToFollowup);
 $("closeModalBtn").addEventListener("click", closeMailModal);
 $("mailModal").addEventListener("click", (event) => {
   if (event.target === $("mailModal")) closeMailModal();

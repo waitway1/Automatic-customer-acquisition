@@ -2718,6 +2718,32 @@ def find_model_email_for_candidates(config: dict[str, Any], emails: list[str]) -
     return None, None
 
 
+def move_intervention_to_followup(item_id: str) -> dict[str, Any]:
+    item = next((entry for entry in read_interventions() if entry.get("id") == item_id), None)
+    if not item:
+        raise RuntimeError("未找到待跟进邮件")
+    if item.get("moved_to_followup"):
+        return {"moved": False, "already_moved": True}
+    config = load_config()
+    model_key = normalize(item.get("model"))
+    email_value = normalize(item.get("email")).lower()
+    if not model_key or model_key not in config.get("models", {}):
+        model_key = find_model_for_email(config, email_value) if email_value else ""
+    if not model_key or not email_value:
+        raise RuntimeError("缺少车型或客户邮箱，无法移入跟进")
+    moved = move_followup_email(config, model_key, email_value, "手动移入跟进", "人工确认客户需要跟进")
+    update_intervention(
+        item_id,
+        {
+            "model": model_key,
+            "email": email_value,
+            "moved_to_followup": moved,
+            "followup_moved_at": now_iso() if moved else "",
+        },
+    )
+    return {"moved": moved, "model": model_key, "email": email_value}
+
+
 def find_unsent_alternative(config: dict[str, Any], model_key: str, exclude_email: str) -> str | None:
     for row in read_model_rows(config, model_key):
         if row.get("email", "").lower() == exclude_email.lower():
@@ -3294,9 +3320,6 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
     if is_interested_message(config, subject, from_addr, text):
         emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
         model_key, customer_email = find_model_email_for_candidates(config, emails)
-        moved_to_followup = False
-        if model_key and customer_email:
-            moved_to_followup = move_followup_email(config, model_key, customer_email, "已回复客户", "检测到客户意向回复")
         body = leading_message_text(text)
         add_intervention(
             {
@@ -3305,7 +3328,7 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
                 "subject": subject,
                 "email": customer_email or (emails[0] if emails else ""),
                 "model": model_key or "",
-                "moved_to_followup": moved_to_followup,
+                "moved_to_followup": False,
                 "snippet": re.sub(r"\s+", " ", body)[:240],
                 "body": body[:12000],
                 "status": "待处理",
@@ -3562,6 +3585,14 @@ class ApiHandler(SimpleHTTPRequestHandler):
                     raise RuntimeError("缺少邮件ID")
                 updated = update_intervention(item_id, {"read_at": now_iso()})
                 self.send_json({"ok": True, "updated": updated})
+                return
+            if self.path == "/api/intervention/followup":
+                body = self.read_body()
+                item_id = normalize(body.get("id"))
+                if not item_id:
+                    raise RuntimeError("缺少待跟进ID")
+                result = move_intervention_to_followup(item_id)
+                self.send_json({"ok": True, **result})
                 return
             if self.path == "/api/intervention/clear":
                 cleared = clear_active_interventions()

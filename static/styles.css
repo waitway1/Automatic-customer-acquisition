@@ -644,6 +644,20 @@ input:hover {
   font-weight: 650;
 }
 
+.followBadge {
+  width: fit-content;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid oklch(0.79 0.08 155);
+  border-radius: 999px;
+  padding: 0 8px;
+  background: oklch(0.94 0.035 155);
+  color: oklch(0.38 0.105 155);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .empty {
   color: var(--muted);
   background: var(--panel-soft);
