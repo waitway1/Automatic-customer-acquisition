@@ -1302,8 +1302,9 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
             item["status"] = "检查中"
         messages = saved_messages.get(resolved["key"], []) if isinstance(saved_messages, dict) else []
         if isinstance(messages, list):
-            item["messages"] = messages[:5]
-            item["new_count"] = sum(1 for message in messages if not message.get("read_at"))
+            unread_messages = [message for message in messages if not message.get("read_at")]
+            item["messages"] = unread_messages[:5]
+            item["new_count"] = len(unread_messages)
         else:
             item["messages"] = []
             item["new_count"] = 0
@@ -2635,6 +2636,75 @@ def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str
     write_json(MAIL_MESSAGES_PATH, messages)
 
 
+def imap_response_text(data: Any) -> str:
+    parts: list[str] = []
+
+    def add(value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, bytes):
+            parts.append(value.decode("utf-8", errors="ignore"))
+        elif isinstance(value, list):
+            for nested in value:
+                add(nested)
+        elif isinstance(value, tuple):
+            for nested in value:
+                add(nested)
+        else:
+            parts.append(str(value))
+
+    add(data)
+    return " ".join(parts)
+
+
+def remove_cached_mail_message_ids(account_key: str, message_ids: set[str]) -> int:
+    if not message_ids:
+        return 0
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return 0
+    account_messages = messages.get(account_key, [])
+    if not isinstance(account_messages, list):
+        return 0
+    filtered = [item for item in account_messages if normalize(item.get("id")) not in message_ids]
+    removed = len(account_messages) - len(filtered)
+    if removed:
+        messages[account_key] = filtered
+        write_json(MAIL_MESSAGES_PATH, messages)
+    return removed
+
+
+def prune_seen_cached_messages_for_folder(account_key: str, folder: str, client: imaplib.IMAP4_SSL) -> int:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return 0
+    account_messages = messages.get(account_key, [])
+    if not isinstance(account_messages, list):
+        return 0
+    remove_ids: set[str] = set()
+    for item in account_messages:
+        if normalize(item.get("folder")) != folder:
+            continue
+        uid = normalize(item.get("imap_uid"))
+        item_id = normalize(item.get("id"))
+        if not uid or not item_id:
+            continue
+        try:
+            fetch_status, flags_data = client.uid("FETCH", uid, "(FLAGS)")
+        except Exception as exc:
+            append_log(f"Mail cache flag check failed: {account_key} {folder} UID {uid}: {exc}")
+            continue
+        flags_text = imap_response_text(flags_data)
+        flags_lower = flags_text.lower()
+        missing_uid = fetch_status != "OK" or not flags_data or "flags" not in flags_lower
+        if missing_uid or "\\seen" in flags_lower:
+            remove_ids.add(item_id)
+    removed = remove_cached_mail_message_ids(account_key, remove_ids)
+    if removed:
+        append_log(f"Pruned read cached mail: {account_key} {folder} {removed}")
+    return removed
+
+
 def mark_imap_message_seen(config: dict[str, Any], account_key: str, message: dict[str, Any]) -> bool:
     account = next((item for item in config.get("mail_accounts", []) if normalize(item.get("key")) == account_key), None)
     if not account:
@@ -2903,6 +2973,7 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                 if select_status != "OK":
                     continue
                 status["folders"].append(folder)
+                prune_seen_cached_messages_for_folder(resolved["key"], folder, client)
                 search_status, data = client.uid("SEARCH", None, f'(UNSEEN SINCE "{since}")')
                 if search_status != "OK":
                     continue
