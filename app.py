@@ -1021,6 +1021,30 @@ def should_ignore_bounce(config: dict[str, Any], msg: email.message.Message) -> 
     return bool(ignore_before and msg_time and msg_time < ignore_before)
 
 
+def is_bounce_message(config: dict[str, Any], subject: str, from_addr: str, text: str) -> bool:
+    lower = f"{subject}\n{from_addr}\n{text}".lower()
+    return any(token.lower() in lower for token in config.get("bounce_keywords", []))
+
+
+def configured_mail_addresses(config: dict[str, Any]) -> set[str]:
+    addresses: set[str] = set()
+    for account in config.get("mail_accounts", []):
+        resolved = resolve_mail_account(config, account)
+        user = normalize(resolved.get("imap_user")).lower()
+        if is_valid_email(user):
+            addresses.add(user)
+    for profile in sender_profiles(config).values():
+        user = normalize(profile.get("user")).lower()
+        if is_valid_email(user):
+            addresses.add(user)
+    return addresses
+
+
+def is_own_sender(config: dict[str, Any], from_addr: str) -> bool:
+    own = configured_mail_addresses(config)
+    return any(value.lower() in own for value in EMAIL_RE.findall(from_addr))
+
+
 def model_workbook_path(config: dict[str, Any], model_key: str) -> Path:
     model = config["models"][model_key]
     folder = project_path(config["excel_root"]) / model["folder"]
@@ -2667,6 +2691,20 @@ def find_model_for_email(config: dict[str, Any], email_value: str) -> str | None
     return None
 
 
+def sent_today(value: Any) -> bool:
+    sent_at = parse_local_datetime(value)
+    return bool(sent_at and sent_at.date() == date.today())
+
+
+def find_model_for_email_sent_today(config: dict[str, Any], email_value: str) -> str | None:
+    target = email_value.lower()
+    for key in config.get("models", {}):
+        for row in read_model_rows(config, key):
+            if row.get("email", "").lower() == target and sent_today(row.get("first_time")):
+                return key
+    return None
+
+
 def find_model_email_for_candidates(config: dict[str, Any], emails: list[str]) -> tuple[str | None, str | None]:
     seen = []
     for email_value in emails:
@@ -3235,16 +3273,23 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
     subject = decode_mime_header(msg.get("Subject"))
     from_addr = decode_mime_header(msg.get("From"))
     text = message_text(msg)
-    lower = f"{subject}\n{from_addr}\n{text}".lower()
-    if any(token.lower() in lower for token in config.get("bounce_keywords", [])):
+    if is_bounce_message(config, subject, from_addr, text):
         if should_ignore_bounce(config, msg):
             return 0, 0
         emails = [value.lower() for value in EMAIL_RE.findall(text) if is_valid_email(value)]
+        old_match: tuple[str, str] | None = None
         for bounced in dict.fromkeys(emails):
-            model_key = find_model_for_email(config, bounced)
+            model_key = find_model_for_email_sent_today(config, bounced)
             if model_key:
                 retry_after_bounce(config, model_key, bounced)
                 return 1, 0
+            existing_model = find_model_for_email(config, bounced)
+            if existing_model and old_match is None:
+                old_match = (bounced, existing_model)
+        if old_match:
+            append_log(f"ignored non-today bounce: {old_match[0]} model={old_match[1]}")
+        return 0, 0
+    if is_own_sender(config, from_addr):
         return 0, 0
     if is_interested_message(config, subject, from_addr, text):
         emails = [value.lower() for value in EMAIL_RE.findall(f"{from_addr}\n{text}") if is_valid_email(value)]
@@ -3316,7 +3361,9 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                     subject = decode_mime_header(msg.get("Subject"))
                     from_addr = decode_mime_header(msg.get("From"))
                     text = message_text(msg)
-                    record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
+                    is_bounce = is_bounce_message(config, subject, from_addr, text)
+                    if not is_bounce:
+                        record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
                     bounces, interested = process_mail_message(config, raw)
                     status["checked"] += 1
                     status["bounces"] += bounces
