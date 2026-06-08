@@ -784,8 +784,8 @@ TASK_LOCK = threading.Lock()
 CURRENT_TASK: dict[str, Any] | None = None
 MAIL_MONITOR_THREAD: threading.Thread | None = None
 MAIL_MONITOR_STOP = threading.Event()
-ANYSEARCH_DISABLED_UNTIL = 0.0
-ANYSEARCH_DISABLED_REASON = ""
+ANYSEARCH_LOCK = threading.Lock()
+ANYSEARCH_DISABLED: dict[str, float] = {}
 
 
 def now_iso() -> str:
@@ -1401,42 +1401,65 @@ def anysearch_cmd(config: dict[str, Any]) -> list[str]:
     return parts
 
 
+def anysearch_api_keys(config: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    primary = normalize(config.get("anysearch_api_key"))
+    if primary:
+        keys.append(primary)
+    for value in config.get("anysearch_api_keys", []):
+        key = normalize(value)
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
 def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) -> str:
-    global ANYSEARCH_DISABLED_UNTIL, ANYSEARCH_DISABLED_REASON
-    if time.time() < ANYSEARCH_DISABLED_UNTIL:
-        return ANYSEARCH_DISABLED_REASON
     cmd = anysearch_cmd(config) + args
     if not cmd:
         return ""
-    env = os.environ.copy()
-    api_key = normalize(config.get("anysearch_api_key"))
-    if api_key:
-        env["ANYSEARCH_API_KEY"] = api_key
-    try:
-        proc = subprocess.run(
-            cmd,
-            cwd=str(ROOT),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            env=env,
-        )
-    except subprocess.TimeoutExpired:
-        ANYSEARCH_DISABLED_UNTIL = time.time() + 600
-        ANYSEARCH_DISABLED_REASON = "anysearch_timeout"
-        append_log(f"AnySearch 超时，10 分钟内切换备用采集方式: {' '.join(args)}")
-        return ANYSEARCH_DISABLED_REASON
-    combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
-    if proc.returncode != 0:
-        append_log(f"AnySearch failed: {' '.join(args)} :: {proc.stderr.strip()}")
-    if anysearch_limited(combined):
-        ANYSEARCH_DISABLED_UNTIL = time.time() + 3600
-        ANYSEARCH_DISABLED_REASON = combined[:2000] or "anysearch_limited"
-        append_log("AnySearch 额度不可用，切换备用采集方式")
-    return combined
-
+    keys = anysearch_api_keys(config) or [""]
+    fallback_output = ""
+    for index, api_key in enumerate(keys):
+        key_id = api_key or "__anonymous__"
+        with ANYSEARCH_LOCK:
+            disabled_until = ANYSEARCH_DISABLED.get(key_id, 0.0)
+        if time.time() < disabled_until:
+            fallback_output = "anysearch_limited"
+            continue
+        env = os.environ.copy()
+        if api_key:
+            env["ANYSEARCH_API_KEY"] = api_key
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                env=env,
+            )
+        except subprocess.TimeoutExpired:
+            with ANYSEARCH_LOCK:
+                ANYSEARCH_DISABLED[key_id] = time.time() + 600
+            fallback_output = "anysearch_timeout"
+            append_log(f"AnySearch key {index + 1}/{len(keys)} timeout, try next key: {' '.join(args)}")
+            continue
+        combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
+        if proc.returncode != 0:
+            append_log(f"AnySearch failed key {index + 1}/{len(keys)}: {' '.join(args)} :: {proc.stderr.strip()}")
+        if anysearch_limited(combined):
+            with ANYSEARCH_LOCK:
+                ANYSEARCH_DISABLED[key_id] = time.time() + 3600
+            fallback_output = combined[:2000] or "anysearch_limited"
+            append_log(f"AnySearch key {index + 1}/{len(keys)} quota unavailable, switching key")
+            continue
+        if index > 0:
+            append_log(f"AnySearch using backup key {index + 1}/{len(keys)}")
+        return combined
+    append_log("AnySearch all configured keys unavailable, switching to fallback collection")
+    return fallback_output or "anysearch_limited"
 
 def anysearch_limited(output: str) -> bool:
     lower = output.lower()
@@ -1992,13 +2015,16 @@ def lead_search_queries(model: dict[str, Any]) -> list[str]:
     return queries[:60]
 
 
-def collect_for_model(config: dict[str, Any], model_key: str, target_count: int) -> dict[str, Any]:
+def collect_for_model(config: dict[str, Any], model_key: str, target_count: int, deadline: float | None = None) -> dict[str, Any]:
     model = model_with_key(config, model_key)
     append_log(f"开始获客: {model['label']} 目标 {target_count}")
     existing_emails, existing_domains = build_dedupe_sets(config, model_key)
     found: list[dict[str, str]] = []
     rejected: list[dict[str, str]] = []
     seen_urls: set[str] = set()
+
+    def timed_out() -> bool:
+        return bool(deadline and time.time() >= deadline)
 
     def accept_lead(lead: dict[str, str]) -> None:
         found.append(lead)
@@ -2010,7 +2036,7 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
         append_log(f"{model['label']} new lead {len(found)}/{target_count}: {lead['company']} {lead['email']}")
 
     def try_url(url: str) -> None:
-        if len(found) >= target_count or url in seen_urls:
+        if timed_out() or len(found) >= target_count or url in seen_urls:
             return
         seen_urls.add(url)
         lead, reason = evaluate_candidate_url(config, model, url, existing_emails, existing_domains)
@@ -2029,7 +2055,7 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
 
     def try_search_item(item: dict[str, str]) -> None:
         url = normalize(item.get("url"))
-        if len(found) >= target_count or not url or url in seen_urls:
+        if timed_out() or len(found) >= target_count or not url or url in seen_urls:
             return
         lead, reason = evaluate_search_item(model, item, existing_emails, existing_domains)
         if lead:
@@ -2042,6 +2068,8 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
                 rejected.append({"url": url, "reason": reason})
 
     for seed_url in MODEL_SEED_URLS.get(model_key, ()):
+        if timed_out():
+            break
         try_url(seed_url)
         if len(found) >= target_count:
             break
@@ -2049,12 +2077,14 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
     queries = lead_search_queries(model)
     query_batches = [queries[index : index + 4] for index in range(0, len(queries), 4)]
     for query_batch in query_batches:
-        if len(found) >= target_count:
+        if timed_out() or len(found) >= target_count:
             break
         batch_items = batch_search_candidate_items(config, query_batch, max_results=10, model=model)
         batch_urls: list[str] = []
         for values in batch_items.values():
             for item in values:
+                if timed_out():
+                    break
                 try_search_item(item)
                 value = normalize(item.get("url"))
                 if value and value not in batch_urls:
@@ -2064,13 +2094,15 @@ def collect_for_model(config: dict[str, Any], model_key: str, target_count: int)
             if len(found) >= target_count:
                 break
         urls = batch_urls
-        if not urls:
+        if not timed_out() and not urls:
             for query_text in query_batch:
+                if timed_out():
+                    break
                 for value in search_candidate_urls(config, query_text, max_results=10, model=model):
                     if value not in urls:
                         urls.append(value)
         for url in urls:
-            if len(found) >= target_count:
+            if timed_out() or len(found) >= target_count:
                 break
             try_url(url)
     write_result = append_leads(config, model_key, found)
@@ -2269,13 +2301,57 @@ def send_with_fallback_for_target(model_key: str, target_email: str, primary_pro
 
 def daily_collect(limit_per_model: int) -> dict[str, Any]:
     config = load_config()
-    results = []
-    for key in config.get("models", {}):
-        cleanup = cleanup_blocked_leads(config, key)
-        result = collect_for_model(config, key, limit_per_model)
-        result["cleanup"] = cleanup
-        result["auto_sent"] = []
-        results.append(result)
+    model_keys = list(config.get("models", {}).keys())
+    model_timeout = int(config.get("daily_collect_model_timeout_seconds", 240))
+    results_by_key: dict[str, dict[str, Any]] = {}
+    threads: list[threading.Thread] = []
+
+    def worker(model_key: str) -> None:
+        try:
+            cleanup = cleanup_blocked_leads(config, model_key)
+            result = collect_for_model(config, model_key, limit_per_model, deadline=time.time() + model_timeout)
+            result["cleanup"] = cleanup
+            result["auto_sent"] = []
+        except Exception as exc:
+            append_log(f"daily collect failed: {model_key} {exc}")
+            result = {
+                "model": model_key,
+                "label": config.get("models", {}).get(model_key, {}).get("label", model_key),
+                "found": 0,
+                "written": 0,
+                "written_emails": [],
+                "leads": [],
+                "shortfall": limit_per_model,
+                "error": str(exc),
+            }
+        with TASK_LOCK:
+            results_by_key[model_key] = result
+            if CURRENT_TASK and CURRENT_TASK.get("kind") == "daily_collect_parallel":
+                CURRENT_TASK["progress"] = f"{len(results_by_key)}/{len(model_keys)}"
+                CURRENT_TASK["partial_results"] = [results_by_key[key] for key in model_keys if key in results_by_key]
+
+    for key in model_keys:
+        thread = threading.Thread(target=worker, args=(key,), name=f"collect-{key}", daemon=True)
+        threads.append(thread)
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=model_timeout + 30)
+    with TASK_LOCK:
+        for key in model_keys:
+            if key in results_by_key:
+                continue
+            append_log(f"daily collect timeout: {key}")
+            results_by_key[key] = {
+                "model": key,
+                "label": config.get("models", {}).get(key, {}).get("label", key),
+                "found": 0,
+                "written": 0,
+                "written_emails": [],
+                "leads": [],
+                "shortfall": limit_per_model,
+                "error": f"timeout after {model_timeout}s",
+            }
+    results = [results_by_key[key] for key in model_keys if key in results_by_key]
     return {"daily_limit": limit_per_model, "results": results}
 
 
@@ -3352,7 +3428,7 @@ class ApiHandler(SimpleHTTPRequestHandler):
             if self.path == "/api/daily-collect":
                 body = self.read_body()
                 limit = max(1, min(50, int(body.get("limit", 10))))
-                self.send_json(run_task("daily_collect", daily_collect, limit))
+                self.send_json(run_task("daily_collect_parallel", daily_collect, limit))
                 return
             if self.path == "/api/collect-preview":
                 body = self.read_body()
