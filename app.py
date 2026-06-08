@@ -2992,14 +2992,63 @@ def mail_match_text(value: Any) -> str:
     return re.sub(r"\s+", " ", normalize(value)).strip().lower()
 
 
-def remove_matching_mail_messages(intervention: dict[str, Any]) -> list[dict[str, str]]:
+def find_mail_message(account_key: str, message_id: str) -> dict[str, Any] | None:
     messages = read_json(MAIL_MESSAGES_PATH, {})
     if not isinstance(messages, dict):
-        return []
+        return None
+    keys = [account_key] if account_key else list(messages.keys())
+    for key in keys:
+        account_messages = messages.get(key, [])
+        if not isinstance(account_messages, list):
+            continue
+        for item in account_messages:
+            if item.get("id") == message_id:
+                return dict(item)
+    return None
+
+
+def mail_message_matches_intervention(message: dict[str, Any], intervention: dict[str, Any]) -> bool:
     target_from = mail_match_text(intervention.get("from"))
     target_subject = mail_match_text(intervention.get("subject"))
     target_email = mail_match_text(intervention.get("email"))
     target_body = mail_match_text(intervention.get("snippet") or intervention.get("body"))
+    message_from = mail_match_text(message.get("from"))
+    message_subject = mail_match_text(message.get("subject"))
+    message_body = mail_match_text(message.get("snippet") or message.get("body"))
+    from_matches = bool(target_from and message_from == target_from) or bool(target_email and target_email in message_from)
+    subject_matches = bool(target_subject and message_subject == target_subject)
+    body_matches = bool(
+        target_body
+        and message_body
+        and (target_body[:120] in message_body or message_body[:120] in target_body)
+    )
+    return subject_matches and (from_matches or body_matches)
+
+
+def close_matching_interventions_for_mail_message(message: dict[str, Any]) -> list[dict[str, str]]:
+    if not message:
+        return []
+    items = read_interventions()
+    closed: list[dict[str, str]] = []
+    changed = False
+    for item in items:
+        if not mail_message_matches_intervention(message, item):
+            continue
+        if item.get("status") == "已处理":
+            continue
+        item["status"] = "已处理"
+        item["handled_at"] = now_iso()
+        closed.append({"id": normalize(item.get("id"))})
+        changed = True
+    if changed:
+        write_json(INTERVENTION_PATH, items)
+    return closed
+
+
+def remove_matching_mail_messages(intervention: dict[str, Any]) -> list[dict[str, str]]:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return []
     removed: list[dict[str, str]] = []
     changed = False
     for account_key, account_messages in list(messages.items()):
@@ -3007,17 +3056,7 @@ def remove_matching_mail_messages(intervention: dict[str, Any]) -> list[dict[str
             continue
         kept = []
         for item in account_messages:
-            item_from = mail_match_text(item.get("from"))
-            item_subject = mail_match_text(item.get("subject"))
-            item_body = mail_match_text(item.get("snippet") or item.get("body"))
-            from_matches = bool(target_from and item_from == target_from) or bool(target_email and target_email in item_from)
-            subject_matches = bool(target_subject and item_subject == target_subject)
-            body_matches = bool(
-                target_body
-                and item_body
-                and (target_body[:120] in item_body or item_body[:120] in target_body)
-            )
-            if subject_matches and (from_matches or body_matches):
+            if mail_message_matches_intervention(item, intervention):
                 removed.append({"account_key": account_key, "id": normalize(item.get("id"))})
                 changed = True
                 continue
@@ -3357,16 +3396,22 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 message_id = normalize(body.get("id"))
                 if not message_id:
                     raise RuntimeError("缺少邮件ID")
-                result = mark_mail_message_read(normalize(body.get("account_key")), message_id)
-                self.send_json({"ok": True, **result})
+                account_key = normalize(body.get("account_key"))
+                target = find_mail_message(account_key, message_id)
+                result = mark_mail_message_read(account_key, message_id)
+                closed_interventions = close_matching_interventions_for_mail_message(target or {})
+                self.send_json({"ok": True, **result, "closed_interventions": closed_interventions})
                 return
             if self.path == "/api/mail/remove":
                 body = self.read_body()
                 message_id = normalize(body.get("id"))
                 if not message_id:
                     raise RuntimeError("缺少邮件ID")
-                result = remove_mail_message(normalize(body.get("account_key")), message_id)
-                self.send_json({"ok": True, **result})
+                account_key = normalize(body.get("account_key"))
+                target = find_mail_message(account_key, message_id)
+                result = remove_mail_message(account_key, message_id)
+                closed_interventions = close_matching_interventions_for_mail_message(target or {})
+                self.send_json({"ok": True, **result, "closed_interventions": closed_interventions})
                 return
             if self.path == "/api/intervention/close":
                 body = self.read_body()

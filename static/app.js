@@ -311,6 +311,18 @@ function removeLocalMailboxMessages(records = [], fallbackIntervention = null) {
   });
 }
 
+function closeLocalInterventions(records = [], fallbackMessage = null) {
+  const closedIds = new Set(records.map((record) => record.id).filter(Boolean));
+  state.interventions.forEach((intervention) => {
+    const explicit = closedIds.has(intervention.id);
+    const fallback = fallbackMessage && localMailMatchesIntervention(fallbackMessage, intervention);
+    if (explicit || fallback) {
+      intervention.status = "已处理";
+      intervention.handled_at = new Date().toISOString();
+    }
+  });
+}
+
 async function openMailModal(item, options = {}) {
   const modal = $("mailModal");
   state.modalItem = item;
@@ -351,8 +363,10 @@ async function markCurrentMailRead() {
       alert(`网站已移除，但邮箱已读同步失败：${result.imap_error || "IMAP 未返回成功"}`);
     }
     removeLocalMailboxMessages([{ account_key: options.accountKey || "", id: item.id }]);
+    closeLocalInterventions(result.closed_interventions || [], item);
     closeMailModal();
     renderMailAccounts(state.mailAccounts);
+    renderIntervention(state.interventions);
     refresh();
     return;
   }
