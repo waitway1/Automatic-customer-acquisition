@@ -2600,20 +2600,23 @@ def clear_active_interventions() -> int:
     return cleared
 
 
-def mail_message_id(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str) -> str:
-    raw = "|".join([account_key, folder, msg_id, normalize(subject), normalize(from_addr)])
+def mail_message_id(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str, uid: str = "") -> str:
+    raw = "|".join([account_key, folder, normalize(uid) or msg_id, normalize(subject), normalize(from_addr)])
     return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
-def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str, text: str) -> None:
+def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str, text: str, uid: str = "") -> None:
     messages = read_json(MAIL_MESSAGES_PATH, {})
     if not isinstance(messages, dict):
         messages = {}
     body = leading_message_text(text) or clean_message_text(text)
     item = {
-        "id": mail_message_id(account_key, folder, msg_id, subject, from_addr),
+        "id": mail_message_id(account_key, folder, msg_id, subject, from_addr, uid),
         "time": now_iso(),
+        "account_key": account_key,
         "folder": folder,
+        "imap_uid": normalize(uid),
+        "imap_id": msg_id,
         "from": from_addr,
         "subject": subject or "无主题",
         "snippet": re.sub(r"\s+", " ", body)[:180],
@@ -2632,10 +2635,32 @@ def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str
     write_json(MAIL_MESSAGES_PATH, messages)
 
 
-def mark_mail_message_read(account_key: str, message_id: str) -> bool:
+def mark_imap_message_seen(config: dict[str, Any], account_key: str, message: dict[str, Any]) -> bool:
+    account = next((item for item in config.get("mail_accounts", []) if normalize(item.get("key")) == account_key), None)
+    if not account:
+        return False
+    resolved = resolve_mail_account(config, account)
+    folder = normalize(message.get("folder")) or "INBOX"
+    uid = normalize(message.get("imap_uid"))
+    seq_id = normalize(message.get("imap_id"))
+    if not (resolved["imap_host"] and resolved["imap_user"] and resolved["imap_password"] and folder and (uid or seq_id)):
+        return False
+    with imaplib.IMAP4_SSL(resolved["imap_host"], resolved["imap_port"], timeout=45) as client:
+        client.login(resolved["imap_user"], resolved["imap_password"])
+        select_status, _ = client.select(folder, readonly=False)
+        if select_status != "OK":
+            return False
+        if uid:
+            status, _ = client.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+        else:
+            status, _ = client.store(seq_id, "+FLAGS", r"(\Seen)")
+        return status == "OK"
+
+
+def mark_mail_message_read(account_key: str, message_id: str) -> dict[str, Any]:
     messages = read_json(MAIL_MESSAGES_PATH, {})
     if not isinstance(messages, dict):
-        return False
+        return {"updated": False, "imap_seen": False}
     keys = [account_key] if account_key else list(messages.keys())
     for key in keys:
         account_messages = messages.get(key, [])
@@ -2643,27 +2668,43 @@ def mark_mail_message_read(account_key: str, message_id: str) -> bool:
             continue
         for item in account_messages:
             if item.get("id") == message_id:
+                imap_seen = False
+                imap_error = ""
+                try:
+                    imap_seen = mark_imap_message_seen(load_config(), key, item)
+                except Exception as exc:
+                    imap_error = str(exc)
+                    append_log(f"同步邮件已读失败: {key} {message_id}: {exc}")
                 item["read_at"] = now_iso()
                 write_json(MAIL_MESSAGES_PATH, messages)
-                return True
-    return False
+                return {"updated": True, "imap_seen": imap_seen, "imap_error": imap_error}
+    return {"updated": False, "imap_seen": False}
 
 
-def remove_mail_message(account_key: str, message_id: str) -> bool:
+def remove_mail_message(account_key: str, message_id: str) -> dict[str, Any]:
     messages = read_json(MAIL_MESSAGES_PATH, {})
     if not isinstance(messages, dict):
-        return False
+        return {"removed": False, "imap_seen": False}
     keys = [account_key] if account_key else list(messages.keys())
     for key in keys:
         account_messages = messages.get(key, [])
         if not isinstance(account_messages, list):
             continue
+        target = next((item for item in account_messages if item.get("id") == message_id), None)
+        imap_seen = False
+        imap_error = ""
+        if target:
+            try:
+                imap_seen = mark_imap_message_seen(load_config(), key, target)
+            except Exception as exc:
+                imap_error = str(exc)
+                append_log(f"同步邮件已读失败: {key} {message_id}: {exc}")
         filtered = [item for item in account_messages if item.get("id") != message_id]
         if len(filtered) != len(account_messages):
             messages[key] = filtered
             write_json(MAIL_MESSAGES_PATH, messages)
-            return True
-    return False
+            return {"removed": True, "imap_seen": imap_seen, "imap_error": imap_error}
+    return {"removed": False, "imap_seen": False}
 
 
 def mail_match_text(value: Any) -> str:
@@ -2862,14 +2903,15 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                 if select_status != "OK":
                     continue
                 status["folders"].append(folder)
-                search_status, data = client.search(None, f'(SINCE "{since}")')
+                search_status, data = client.uid("SEARCH", None, f'(UNSEEN SINCE "{since}")')
                 if search_status != "OK":
                     continue
-                for msg_id in data[0].split()[-200:]:
-                    msg_key = f"{resolved['key']}:{folder}:{msg_id.decode('ascii', errors='ignore')}"
+                for uid_value in data[0].split()[-200:]:
+                    uid_text = uid_value.decode("ascii", errors="ignore")
+                    msg_key = f"{resolved['key']}:{folder}:UID:{uid_text}"
                     if processed.get(msg_key):
                         continue
-                    fetch_status, msg_data = client.fetch(msg_id, "(RFC822)")
+                    fetch_status, msg_data = client.uid("FETCH", uid_value, "(RFC822)")
                     if fetch_status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue
                     raw = msg_data[0][1]
@@ -2877,7 +2919,7 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                     subject = decode_mime_header(msg.get("Subject"))
                     from_addr = decode_mime_header(msg.get("From"))
                     text = message_text(msg)
-                    record_mail_message(resolved["key"], folder, msg_id.decode("ascii", errors="ignore"), subject, from_addr, text)
+                    record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
                     bounces, interested = process_mail_message(config, raw)
                     status["checked"] += 1
                     status["bounces"] += bounces
@@ -3033,16 +3075,16 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 message_id = normalize(body.get("id"))
                 if not message_id:
                     raise RuntimeError("缺少邮件ID")
-                updated = mark_mail_message_read(normalize(body.get("account_key")), message_id)
-                self.send_json({"ok": True, "updated": updated})
+                result = mark_mail_message_read(normalize(body.get("account_key")), message_id)
+                self.send_json({"ok": True, **result})
                 return
             if self.path == "/api/mail/remove":
                 body = self.read_body()
                 message_id = normalize(body.get("id"))
                 if not message_id:
                     raise RuntimeError("缺少邮件ID")
-                removed = remove_mail_message(normalize(body.get("account_key")), message_id)
-                self.send_json({"ok": True, "removed": removed})
+                result = remove_mail_message(normalize(body.get("account_key")), message_id)
+                self.send_json({"ok": True, **result})
                 return
             if self.path == "/api/intervention/close":
                 body = self.read_body()

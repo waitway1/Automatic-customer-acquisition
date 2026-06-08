@@ -343,10 +343,13 @@ async function markCurrentMailRead() {
   const options = state.modalOptions || {};
   if (!item) return;
   if (options.type === "mailbox") {
-    await api("/api/mail/remove", {
+    const result = await api("/api/mail/remove", {
       method: "POST",
       body: JSON.stringify({ id: item.id, account_key: options.accountKey || "" }),
     });
+    if (result.removed && result.imap_seen === false) {
+      alert(`网站已移除，但邮箱已读同步失败：${result.imap_error || "IMAP 未返回成功"}`);
+    }
     removeLocalMailboxMessages([{ account_key: options.accountKey || "", id: item.id }]);
     closeMailModal();
     renderMailAccounts(state.mailAccounts);
