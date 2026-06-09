@@ -41,6 +41,7 @@ BOUNCE_STATE_PATH = RUNTIME_DIR / "bounce_state.json"
 MAIL_STATUS_PATH = RUNTIME_DIR / "mail_status.json"
 DAILY_INVALID_PATH = RUNTIME_DIR / "daily_invalid.json"
 MAIL_MESSAGES_PATH = RUNTIME_DIR / "mail_messages.json"
+SHEET_SYNC_PATH = RUNTIME_DIR / "sheet_sync_state.json"
 GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
 ASSET_DIR = ROOT / "work" / "assets"
 
@@ -1291,13 +1292,48 @@ def record_today_invalid(model_key: str, email_value: str, sender_profile: str, 
     write_json(DAILY_INVALID_PATH, data)
 
 
+def sheet_sync_state() -> dict[str, Any]:
+    data = read_json(SHEET_SYNC_PATH, {})
+    return data if isinstance(data, dict) else {}
+
+
+def workbook_mtime(config: dict[str, Any], model_key: str) -> str:
+    path = model_workbook_path(config, model_key)
+    return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S") if path.exists() else ""
+
+
+def sync_model_sheet(config: dict[str, Any], model_key: str) -> dict[str, Any]:
+    if model_key not in config.get("models", {}):
+        raise RuntimeError("未知车型")
+    rows = read_model_rows(config, model_key)
+    sent = sum(1 for row in rows if row.get("first_time"))
+    state = sheet_sync_state()
+    state[model_key] = {
+        "synced_at": now_iso(),
+        "count": len(rows),
+        "sent": sent,
+        "unsent": len(rows) - sent,
+        "workbook_mtime": workbook_mtime(config, model_key),
+    }
+    write_json(SHEET_SYNC_PATH, state)
+    return {"model": model_key, **state[model_key]}
+
+
+def sync_all_sheets() -> dict[str, Any]:
+    config = load_config()
+    return {"models": [sync_model_sheet(config, key) for key in config.get("models", {})]}
+
+
 def dashboard_status() -> dict[str, Any]:
     config = load_config()
+    sync_state = sheet_sync_state()
     models = []
     for key, model in config.get("models", {}).items():
         try:
             rows = read_model_rows(config, key)
             sent = sum(1 for row in rows if row.get("first_time"))
+            saved_sync = sync_state.get(key, {}) if isinstance(sync_state.get(key), dict) else {}
+            workbook_updated = workbook_mtime(config, key)
             models.append(
                 {
                     "key": key,
@@ -1306,9 +1342,8 @@ def dashboard_status() -> dict[str, Any]:
                     "sent": sent,
                     "unsent": len(rows) - sent,
                     "invalid": count_today_invalid(key),
-                    "last_updated": datetime.fromtimestamp(model_workbook_path(config, key).stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    if model_workbook_path(config, key).exists()
-                    else "",
+                    "last_updated": saved_sync.get("synced_at") or workbook_updated,
+                    "workbook_updated": workbook_updated,
                 }
             )
         except Exception as exc:
@@ -3527,6 +3562,17 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 if model_key not in load_config().get("models", {}):
                     raise RuntimeError("未知车型")
                 self.send_json(run_task(f"reset_{model_key}", reset_model_send_state, model_key))
+                return
+            if self.path == "/api/sync-sheets":
+                self.send_json(run_task("sync_sheets", sync_all_sheets))
+                return
+            if self.path == "/api/sync-model":
+                body = self.read_body()
+                model_key = body.get("model")
+                config = load_config()
+                if model_key not in config.get("models", {}):
+                    raise RuntimeError("未知车型")
+                self.send_json(run_task(f"sync_{model_key}", sync_model_sheet, config, model_key))
                 return
             if self.path == "/api/mail/start":
                 self.send_json(start_mail_monitor())

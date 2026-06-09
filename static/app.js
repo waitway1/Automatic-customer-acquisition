@@ -30,6 +30,10 @@ function shortText(value, length = 150) {
   return text.length > length ? `${text.slice(0, length)}...` : text;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function activeInterventionItems(items) {
   return (items || []).filter((item) => item.status !== "已处理");
 }
@@ -104,7 +108,12 @@ async function api(path, options = {}) {
 function setBusy(isBusy) {
   state.taskRunning = isBusy;
   $("dailyBtn").disabled = isBusy;
+  const syncSheetsButton = $("syncSheetsBtn");
+  if (syncSheetsButton) syncSheetsButton.disabled = isBusy;
   document.querySelectorAll("[data-reset]").forEach((button) => {
+    button.disabled = isBusy;
+  });
+  document.querySelectorAll("[data-sync-model]").forEach((button) => {
     button.disabled = isBusy;
   });
   syncSendLimit();
@@ -177,7 +186,10 @@ function renderModels(models) {
     card.innerHTML = `
       <div class="cardTitle">
         <h3>${model.label}</h3>
-        <button class="ghost" data-reset="${model.key}">重置</button>
+        <div class="modelActions">
+          <button class="ghost" data-sync-model="${model.key}">更新</button>
+          <button class="ghost" data-reset="${model.key}">重置</button>
+        </div>
       </div>
       <div class="primaryMetric">
         <span>客户</span>
@@ -190,6 +202,7 @@ function renderModels(models) {
       </div>
       <p class="subtle">${model.last_updated ? `更新时间 ${model.last_updated}` : ""}</p>
     `;
+    card.querySelector("[data-sync-model]").addEventListener("click", () => syncModel(model));
     card.querySelector("[data-reset]").addEventListener("click", () => resetModel(model));
     grid.appendChild(card);
   });
@@ -457,6 +470,16 @@ async function refresh() {
   renderMailAccounts(state.mailAccounts);
   renderIntervention(state.interventions);
   renderTask(data.task);
+  return data;
+}
+
+async function waitForTaskIdle(maxAttempts = 30) {
+  for (let index = 0; index < maxAttempts; index += 1) {
+    await delay(800);
+    const data = await refresh();
+    if (!data.task || data.task.status !== "running") return data;
+  }
+  return refresh();
 }
 
 async function startDaily() {
@@ -465,6 +488,24 @@ async function startDaily() {
     body: JSON.stringify({ limit: 10 }),
   });
   refresh();
+}
+
+async function syncAllSheets() {
+  await api("/api/sync-sheets", {
+    method: "POST",
+    body: "{}",
+  });
+  await refresh();
+  await waitForTaskIdle();
+}
+
+async function syncModel(model) {
+  await api("/api/sync-model", {
+    method: "POST",
+    body: JSON.stringify({ model: model.key }),
+  });
+  await refresh();
+  await waitForTaskIdle();
 }
 
 async function sendMail() {
@@ -508,6 +549,7 @@ async function clearInterventions() {
 
 $("refreshBtn").addEventListener("click", refresh);
 $("dailyBtn").addEventListener("click", startDaily);
+$("syncSheetsBtn").addEventListener("click", syncAllSheets);
 $("sendBtn").addEventListener("click", sendMail);
 $("modelSelect").addEventListener("change", syncSendLimit);
 $("sendLimit").addEventListener("input", syncSendLimit);

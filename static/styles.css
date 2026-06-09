@@ -388,6 +388,7 @@ input:hover {
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .cardTitle h3 {
@@ -395,6 +396,18 @@ input:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.modelActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.modelActions .ghost {
+  min-height: 30px;
+  padding: 0 10px;
 }
 
 .primaryMetric {
@@ -799,7 +812,8 @@ input:hover {
     align-items: stretch;
   }
 
-  .sectionHeader .danger {
+  .sectionHeader .danger,
+  .sectionHeader .secondary {
     width: 100%;
   }
 
