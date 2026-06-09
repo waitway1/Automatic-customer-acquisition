@@ -8,6 +8,8 @@ const state = {
   modalOptions: {},
   interventionSnapshotReady: false,
   knownInterventionKeys: new Set(),
+  mailSnapshotReady: false,
+  knownMailKeys: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -42,6 +44,10 @@ function interventionKey(item) {
   return item.id || [item.from, item.subject, item.email, item.time].filter(Boolean).join("|");
 }
 
+function mailMessageKey(account, message) {
+  return [account?.key, message?.id || message?.imap_uid, message?.subject, message?.from].filter(Boolean).join("|");
+}
+
 async function requestInterventionNotificationPermission() {
   if (!("Notification" in window)) return false;
   if (Notification.permission === "granted") return true;
@@ -67,6 +73,43 @@ function notifyIntervention(item) {
   } catch {
     // Browser notification support varies; keep the dashboard refresh working.
   }
+}
+
+function notifyMailMessage(account, message) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const key = mailMessageKey(account, message);
+  const detail = [account?.label, message.from, message.subject, message.snippet || message.body].filter(Boolean).join(" ");
+  try {
+    new Notification("收到新邮件", {
+      body: shortText(detail, 180),
+      tag: key ? `mail-${key}` : "mail-message",
+      requireInteraction: true,
+    });
+  } catch {
+    // Browser notification support varies; keep the dashboard refresh working.
+  }
+}
+
+function syncMailNotifications(accounts) {
+  const unreadMessages = [];
+  (accounts || []).forEach((account) => {
+    (account.messages || [])
+      .filter((message) => !message.read_at)
+      .forEach((message) => unreadMessages.push({ account, message }));
+  });
+  const activeKeys = new Set(unreadMessages.map(({ account, message }) => mailMessageKey(account, message)).filter(Boolean));
+  if (!state.mailSnapshotReady) {
+    state.knownMailKeys = activeKeys;
+    state.mailSnapshotReady = true;
+    return;
+  }
+  unreadMessages
+    .filter(({ account, message }) => {
+      const key = mailMessageKey(account, message);
+      return key && !state.knownMailKeys.has(key);
+    })
+    .forEach(({ account, message }) => notifyMailMessage(account, message));
+  state.knownMailKeys = activeKeys;
 }
 
 function syncInterventionNotifications(items) {
@@ -459,6 +502,7 @@ async function refresh() {
   const total = state.models.reduce((sum, model) => sum + (model.count || 0), 0);
   const unsent = state.models.reduce((sum, model) => sum + (model.unsent || 0), 0);
   const sent = state.models.reduce((sum, model) => sum + (model.sent || 0), 0);
+  syncMailNotifications(state.mailAccounts);
   syncInterventionNotifications(state.interventions);
   const interventions = activeInterventionItems(state.interventions).length;
   $("totalCount").textContent = total;

@@ -1386,6 +1386,28 @@ def sender_options(config: dict[str, Any]) -> list[dict[str, str]]:
     return options
 
 
+def select_retry_sender_profile(
+    config: dict[str, Any],
+    exclude_profile: str | None = None,
+    preferred_profile: str | None = None,
+) -> str:
+    exclude = normalize(exclude_profile)
+    candidates: list[str] = []
+
+    def add(profile: Any) -> None:
+        value = normalize(profile)
+        if not value or value == exclude or value in candidates:
+            return
+        candidates.append(value)
+
+    add(preferred_profile)
+    add(config.get("retry_sender_profile"))
+    add(config.get("sender_profile"))
+    for key in sender_profiles(config).keys():
+        add(key)
+    return candidates[0] if candidates else ""
+
+
 def resolve_mail_account(config: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     profiles = sender_profiles(config)
     profile = profiles.get(account.get("sender_profile"), {})
@@ -2337,7 +2359,7 @@ def cleanup_blocked_leads(config: dict[str, Any], model_key: str) -> dict[str, A
 def send_with_fallback_for_target(model_key: str, target_email: str, primary_profile: str | None, context: str) -> dict[str, Any]:
     config = load_config()
     primary = normalize(primary_profile) or normalize(config.get("sender_profile"))
-    retry = normalize(config.get("retry_sender_profile"))
+    retry = select_retry_sender_profile(config, exclude_profile=primary, preferred_profile=normalize(config.get("retry_sender_profile")))
     attempts: list[dict[str, Any]] = []
     try:
         result = send_target_email_for_model(model_key, target_email, primary, log_label=context)
@@ -2801,7 +2823,12 @@ def unsent_emails_for_model(config: dict[str, Any], model_key: str, limit: int) 
     return emails
 
 
-def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: str) -> dict[str, Any]:
+def retry_after_bounce(
+    config: dict[str, Any],
+    model_key: str,
+    bounced_email: str,
+    source_sender_profile: str | None = None,
+) -> dict[str, Any]:
     state = read_json(BOUNCE_STATE_PATH, {})
     key = bounced_email.lower()
     if state.get(key, {}).get("retried"):
@@ -2809,17 +2836,46 @@ def retry_after_bounce(config: dict[str, Any], model_key: str, bounced_email: st
         write_json(BOUNCE_STATE_PATH, state)
         append_log(f"退信二次失败忽略: {bounced_email}")
         return {"action": "ignored_retried_bounce"}
-    retry_sender = normalize(config.get("retry_sender_profile")) or normalize(config.get("sender_profile"))
+    retry_sender = select_retry_sender_profile(
+        config,
+        exclude_profile=source_sender_profile,
+        preferred_profile=normalize(config.get("retry_sender_profile")),
+    )
+    if not retry_sender:
+        retry_sender = select_retry_sender_profile(config, exclude_profile=source_sender_profile)
+    if not retry_sender:
+        reason = f"没有可用备用邮箱，已排除原发件邮箱 {normalize(source_sender_profile) or 'unknown'}"
+        state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso(), "retry_error": reason}
+        write_json(BOUNCE_STATE_PATH, state)
+        moved = mark_final_invalid_email(config, model_key, bounced_email, "", reason, "退信备用发送失败")
+        append_log(f"退信备用发送失败，已计入今日失效: {bounced_email} moved={moved} reason={reason}")
+        return {"action": "no_retry_sender", "error": reason, "moved_to_invalid": moved}
     try:
         send_result = send_target_email_for_model(model_key, bounced_email, retry_sender)
     except Exception as exc:
-        state[key] = {"retried": True, "failed_final": True, "updated_at": now_iso(), "retry_error": str(exc)[:500]}
+        state[key] = {
+            "retried": True,
+            "failed_final": True,
+            "source_sender": normalize(source_sender_profile),
+            "retry_sender": retry_sender,
+            "updated_at": now_iso(),
+            "retry_error": str(exc)[:500],
+        }
         write_json(BOUNCE_STATE_PATH, state)
         moved = mark_final_invalid_email(config, model_key, bounced_email, retry_sender, str(exc), "退信备用发送失败")
         append_log(f"退信备用发送失败，已计入今日失效: {bounced_email} moved={moved}")
         return {"action": "retry_send_failed", "error": str(exc), "moved_to_invalid": moved}
-    state[key] = {"retried": True, "failed_final": False, "updated_at": now_iso()}
+    state[key] = {
+        "retried": True,
+        "failed_final": False,
+        "source_sender": normalize(source_sender_profile),
+        "retry_sender": retry_sender,
+        "updated_at": now_iso(),
+    }
     write_json(BOUNCE_STATE_PATH, state)
+    append_log(
+        f"退信重发使用备用邮箱: {bounced_email} source={normalize(source_sender_profile) or 'unknown'} retry={retry_sender}"
+    )
     return {"action": "retried_once", "send_result": send_result}
 
 
@@ -3329,7 +3385,7 @@ def stop_mail_monitor() -> dict[str, Any]:
     return {"running": False}
 
 
-def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
+def process_mail_message(config: dict[str, Any], raw: bytes, source_sender_profile: str | None = None) -> tuple[int, int]:
     msg = email.message_from_bytes(raw)
     subject = decode_mime_header(msg.get("Subject"))
     from_addr = decode_mime_header(msg.get("From"))
@@ -3342,7 +3398,7 @@ def process_mail_message(config: dict[str, Any], raw: bytes) -> tuple[int, int]:
         for bounced in dict.fromkeys(emails):
             model_key = find_model_for_email_sent_today(config, bounced)
             if model_key:
-                retry_after_bounce(config, model_key, bounced)
+                retry_after_bounce(config, model_key, bounced, source_sender_profile=source_sender_profile)
                 return 1, 0
             existing_model = find_model_for_email(config, bounced)
             if existing_model and old_match is None:
@@ -3409,8 +3465,6 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                 for uid_value in data[0].split()[-200:]:
                     uid_text = uid_value.decode("ascii", errors="ignore")
                     msg_key = f"{resolved['key']}:{folder}:UID:{uid_text}"
-                    if processed.get(msg_key):
-                        continue
                     fetch_status, msg_data = client.uid("FETCH", uid_value, "(RFC822)")
                     if fetch_status != "OK" or not msg_data or not isinstance(msg_data[0], tuple):
                         continue
@@ -3419,10 +3473,14 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                     subject = decode_mime_header(msg.get("Subject"))
                     from_addr = decode_mime_header(msg.get("From"))
                     text = message_text(msg)
-                    is_bounce = is_bounce_message(config, subject, from_addr, text)
-                    if not is_bounce:
-                        record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
-                    bounces, interested = process_mail_message(config, raw)
+                    record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
+                    if processed.get(msg_key):
+                        continue
+                    bounces, interested = process_mail_message(
+                        config,
+                        raw,
+                        source_sender_profile=normalize(account.get("sender_profile")),
+                    )
                     status["checked"] += 1
                     status["bounces"] += bounces
                     status["interested"] += interested
