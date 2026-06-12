@@ -60,6 +60,201 @@
     }
   ],
   "models": {
+    "ranger_t9": {
+      "label": "Ranger T9",
+      "aliases": [
+        "ranger t9",
+        "ranegrt9",
+        "ranger"
+      ],
+      "folder": "ranger",
+      "workbook": "ranger.xlsx",
+      "sheet": "Sheet1",
+      "invalid_sheet": "邮箱失效",
+      "email_header": "客户邮箱",
+      "company_header": "客户名",
+      "country_header": "客户国家",
+      "website_header": "客户网址",
+      "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
+      "vehicle_terms": [
+        "ranger",
+        "ranger t9",
+        "ford ranger",
+        "ranger raptor"
+      ],
+      "search_queries": [
+        "Ford Ranger T9 accessories shop email",
+        "Ford Ranger T9 body kit supplier contact",
+        "Ford Ranger T9 4x4 accessories dealer email",
+        "Ford Ranger T9 fender flares shop email",
+        "Ford Ranger T9 grille side steps accessories"
+      ],
+      "message": {
+        "product_label": "Ford Ranger T9 exterior accessories",
+        "product_items": [
+          "body kit",
+          "front grille",
+          "fender flares",
+          "side steps",
+          "roof light"
+        ]
+      },
+      "images": [
+        "14.jpg",
+        "16.png"
+      ]
+    },
+    "byd_shark6": {
+      "label": "BYD Shark 6",
+      "aliases": [
+        "byd shark6",
+        "byd shark 6",
+        "byd shark"
+      ],
+      "folder": "byd",
+      "workbook": "byd客户表.xlsx",
+      "sheet": "Sheet1",
+      "invalid_sheet": "邮箱失效",
+      "email_header": "邮箱",
+      "company_header": "客户",
+      "country_header": "国家",
+      "website_header": "网址",
+      "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国",
+        "澳大利亚"
+      ],
+      "vehicle_terms": [
+        "byd shark",
+        "byd shark 6",
+        "shark 6"
+      ],
+      "search_queries": [
+        "BYD Shark 6 accessories shop email",
+        "BYD Shark 6 side steps supplier contact",
+        "BYD Shark 6 roof rack light bar email",
+        "BYD Shark 6 fender flares shop email",
+        "BYD Shark pickup accessories dealer email"
+      ],
+      "message": {
+        "product_label": "BYD Shark 6 exterior accessories",
+        "product_items": [
+          "side steps",
+          "fender flares",
+          "roof light",
+          "roof rack",
+          "pickup accessories"
+        ]
+      },
+      "images": [
+        "10.png"
+      ]
+    },
+    "vw_amarok": {
+      "label": "VW Amarok",
+      "aliases": [
+        "vm amarok",
+        "vw amarok",
+        "amarok"
+      ],
+      "folder": "amarok",
+      "workbook": "amarok.xlsx",
+      "sheet": "Sheet1",
+      "invalid_sheet": "邮箱失效",
+      "email_header": "客户邮箱",
+      "company_header": "客户名",
+      "country_header": "客户国家",
+      "website_header": "客户网址",
+      "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国",
+        "英国"
+      ],
+      "vehicle_terms": [
+        "amarok",
+        "vw",
+        "volkswagen"
+      ],
+      "search_queries": [
+        "VW Amarok accessories shop email",
+        "Volkswagen Amarok canopy dealer contact",
+        "VW Amarok side steps supplier email",
+        "VW Amarok bull bar accessories shop email",
+        "Amarok tonneau cover online store contact"
+      ],
+      "message": {
+        "product_label": "VW Amarok pickup accessories",
+        "product_items": [
+          "canopy",
+          "side steps",
+          "bull bar",
+          "tonneau cover",
+          "fender flares"
+        ]
+      },
+      "images": [
+        "11.jpg"
+      ]
+    },
+    "santa_fe": {
+      "label": "Santa Fe",
+      "aliases": [
+        "santa fe",
+        "santafe",
+        "hyundai santa fe"
+      ],
+      "folder": "santafe",
+      "workbook": "santafe客户表.xlsx",
+      "sheet": "Sheet1",
+      "invalid_sheet": "邮箱失效",
+      "email_header": "邮箱",
+      "company_header": "客户",
+      "country_header": "国家",
+      "website_header": "网址",
+      "first_time_header": "一次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
+      "vehicle_terms": [
+        "hyundai santa fe",
+        "santa fe",
+        "santafe",
+        "mx5"
+      ],
+      "search_queries": [
+        "Hyundai Santa Fe MX5 accessories shop email",
+        "2024 Hyundai Santa Fe exterior accessories contact",
+        "Hyundai Santa Fe MX5 roof rack supplier email",
+        "Hyundai Santa Fe 2024 side steps shop email",
+        "Hyundai Santa Fe MX5 parts store email",
+        "\"2024 Hyundai Santa Fe\" accessories shop",
+        "\"2024 Hyundai Santa Fe\" aftermarket accessories",
+        "\"Hyundai Santa Fe MX5\" roof rack",
+        "\"Hyundai Santa Fe MX5\" cross bars",
+        "\"2024 Hyundai Santa Fe\" side steps",
+        "\"Hyundai Santa Fe MX5\" running boards",
+        "\"2024 Hyundai Santa Fe\" mud flaps",
+        "\"2024 Hyundai Santa Fe\" trailer hitch",
+        "\"Hyundai Santa Fe 2024\" accessories email",
+        "\"Hyundai Santa Fe MX5\" accessories email"
+      ],
+      "message": {
+        "product_label": "Hyundai Santa Fe exterior accessories",
+        "product_items": [
+          "roof rack",
+          "side steps",
+          "body kit",
+          "mud flaps",
+          "bumper guard"
+        ]
+      },
+      "images": [
+        "19.jpg"
+      ]
+    },
     "jetour_t2_g700": {
       "label": "Jetour",
       "aliases": [
