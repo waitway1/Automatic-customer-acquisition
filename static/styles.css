@@ -324,7 +324,7 @@ body {
 
 .model-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
@@ -789,6 +789,7 @@ body {
 @media (max-width: 1100px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .two-col { grid-template-columns: 1fr; }
+  .model-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (max-width: 768px) {
