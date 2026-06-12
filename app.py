@@ -3025,11 +3025,33 @@ def bounce_reason_text(subject: str, text: str) -> str:
         "failed",
         "host",
         "domain",
+        "mx record",
+        "no mx",
+        "domain不存在",
+        "域名不存在",
+        "无法送达",
+        "无法发送",
+        "退信原因",
+        "退件原因",
+        "收件人",
+        "user unknown",
+        "account disabled",
+        "mailbox full",
+        "over quota",
+        "message expired",
+        "connection timed out",
+        "connection refused",
+        " DNS ",
+        "dns",
+        "relay",
+        "spam block",
+        "blocked by",
+        "sender rejected",
     )
     selected = []
     for line in lines:
         lower = line.lower()
-        if any(pattern in lower for pattern in patterns):
+        if any(pattern.lower() in lower for pattern in patterns):
             selected.append(line)
         if len(selected) >= 4:
             break
