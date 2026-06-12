@@ -332,7 +332,7 @@ body {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 16px;
+  padding: 14px;
   transition: border-color 0.12s;
 }
 
@@ -344,7 +344,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .model-top h4 {
@@ -377,12 +377,12 @@ body {
 }
 
 .model-big {
-  font-size: 30px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--ink);
   line-height: 1;
-  padding-bottom: 12px;
-  margin-bottom: 10px;
+  padding-bottom: 10px;
+  margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -395,7 +395,7 @@ body {
 .model-cell {
   background: var(--bg);
   border-radius: 6px;
-  padding: 8px 6px;
+  padding: 6px 4px;
   text-align: center;
 }
 
@@ -403,12 +403,12 @@ body {
   display: block;
   font-size: 10px;
   color: var(--muted);
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .model-cell strong {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ink-secondary);
 }
@@ -416,7 +416,7 @@ body {
 .model-time {
   font-size: 10px;
   color: var(--faint);
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .two-col {
