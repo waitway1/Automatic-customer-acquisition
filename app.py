@@ -387,6 +387,11 @@ MODEL_REQUIREMENTS = {
         "must_not_domains": ("polaris.com", "rangerready.net", "rangerstation.co"),
         "must_not_text": ("polaris ranger", "ranger wear", "insect repellent"),
     },
+    "lc250": {
+        "model_terms": ("lc250", "prado 250", "prado j250", "land cruiser 250", "land cruiser lc250", "toyota prado"),
+        "must_not_domains": ("toyota.com", "toyota-global.com", "toyota.co.jp", "toyota.com.au"),
+        "must_not_text": ("toyota official", "dealer locator", "book a test drive"),
+    },
 }
 MODEL_SEED_URLS = {
     "byd_shark6": (
@@ -426,6 +431,13 @@ MODEL_SEED_URLS = {
         "https://www.autostyle.co.za/",
         "https://www.fbonline4x4accessories.co.za/",
         "https://slickridezinc.co.za/",
+    ),
+    "lc250": (
+        "https://victorious.shop/products/upgraded-spoiler-for-toyota-land-cruiser-250-2024-2025-prado-lc250",
+        "https://aussieoffroad.com.au/products/prado-250-bullbar-rockarmor-gt",
+        "https://www.arcanewarrior.com.au/products/storm-roof-platform-toyota-prado-new-gen",
+        "https://www.traxpa.co.za/product/new-prado-lc250-roof-light-gloss-black-top-lamp-4-led-light-pod/",
+        "https://plomor.com/products/toyota-land-cruiser-lc250-1958-triple-roof-light-cover-2024-2026",
     ),
 }
 MODEL_SEARCH_SEEDS = {
@@ -472,6 +484,18 @@ MODEL_SEARCH_SEEDS = {
         "Jetour T2 roof rack side steps contact",
         "Jetour T2 offroad accessories dealer email",
         "Jetour G700 accessories dealer email",
+    ),
+    "lc250": (
+        "site:.au \"LC250\" accessories email",
+        "site:.za \"Prado 250\" accessories email",
+        "site:.nz \"Land Cruiser 250\" accessories contact",
+        "site:.uk \"LC250\" accessories shop email",
+        "\"Toyota Prado\" \"roof rack\" accessories email",
+        "\"LC250\" \"side steps\" shop email",
+        "\"Prado 250\" \"bull bar\" contact email",
+        "\"Land Cruiser 250\" \"body kit\" shop email",
+        "\"Toyota LC250\" offroad accessories dealer",
+        "\"Prado J250\" accessories supplier email",
     ),
 }
 ANYSEARCH_QUOTA_TERMS = (

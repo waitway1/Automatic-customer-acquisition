@@ -314,6 +314,70 @@
         "17.jpg",
         "18.jpg"
       ]
+    },
+    "lc250": {
+      "label": "LC250 / Prado 250",
+      "aliases": [
+        "lc250",
+        "prado 250",
+        "land cruiser 250",
+        "prado lc250"
+      ],
+      "folder": "lc250",
+      "workbook": "lc250客户表.xlsx",
+      "sheet": "Sheet1",
+      "invalid_sheet": "邮箱失效",
+      "email_header": "邮箱",
+      "company_header": "客户",
+      "country_header": "国家",
+      "website_header": "网址",
+      "first_time_header": "一次跟进时间",
+      "second_time_header": "二次跟进时间",
+      "third_time_header": "三次跟进时间",
+      "exclude_countries": [
+        "中国"
+      ],
+      "vehicle_terms": [
+        "lc250",
+        "prado 250",
+        "land cruiser 250",
+        "prado",
+        "land cruiser",
+        "toyota prado",
+        "toyota land cruiser",
+        "j250"
+      ],
+      "search_queries": [
+        "Toyota LC250 accessories shop email",
+        "Land Cruiser 250 Prado accessories dealer email",
+        "Toyota Prado 250 roof rack supplier contact",
+        "LC250 side steps body kit shop email",
+        "Toyota Land Cruiser 250 bull bar accessories",
+        "Prado J250 fender flares accessories email",
+        "\"LC250\" accessories shop",
+        "\"LC250\" roof rack",
+        "\"LC250\" side steps",
+        "\"LC250\" bull bar",
+        "\"LC250\" body kit",
+        "\"Prado 250\" accessories email",
+        "\"Land Cruiser 250\" accessories",
+        "\"Toyota Prado\" offroad accessories",
+        "\"Prado J250\" accessories shop",
+        "\"Toyota Land Cruiser 250\" accessories dealer"
+      ],
+      "message": {
+        "product_label": "Toyota LC250 / Prado 250 exterior accessories",
+        "product_items": [
+          "roof rack",
+          "side steps",
+          "bull bar",
+          "body kit",
+          "fender flares"
+        ]
+      },
+      "images": [
+        "20.jpg"
+      ]
     }
   },
   "interest_keywords": [
