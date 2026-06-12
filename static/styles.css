@@ -470,9 +470,17 @@ input:hover {
 }
 
 .mailGrid,
-.list {
+.list,
+.bounceList {
   display: grid;
   gap: 10px;
+}
+
+.bounceList {
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 3px;
 }
 
 .badge,
@@ -525,9 +533,13 @@ input:hover {
 .mailMessageList {
   display: grid;
   gap: 7px;
+  max-height: 360px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--line);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 3px;
 }
 
 .mailInboxPreview {
@@ -595,9 +607,19 @@ input:hover {
   box-shadow: 0 0 0 3px oklch(0.57 0.24 255 / 0.16);
 }
 
-.mailInboxPreview.read .unreadDot,
+.mailInboxPreview.opened .unreadDot,
 .followItem.read .unreadDot {
   opacity: 0;
+  box-shadow: none;
+}
+
+.mailInboxPreview.opened {
+  background: var(--panel-soft);
+}
+
+.mailInboxPreview.opened strong {
+  color: var(--muted);
+  font-weight: 650;
 }
 
 .errorText {
@@ -671,10 +693,120 @@ input:hover {
   font-weight: 650;
 }
 
+.bounceItem {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.bounceItem:hover {
+  border-color: var(--line-strong);
+  background: var(--panel-soft);
+}
+
+.bounceItem:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.bounceHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bounceHead strong,
+.bounceEmail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bounceHead strong {
+  color: var(--ink-strong);
+  font-size: 14px;
+}
+
+.bounceHead span,
+.bounceItem p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bounceEmail {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bounceItem p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .empty {
   color: var(--muted);
   background: var(--panel-soft);
   font-size: 13px;
+}
+
+.toastRegion {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 80;
+  width: min(360px, calc(100vw - 36px));
+  display: grid;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toastNotice {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid oklch(0.86 0.035 245 / 0.78);
+  border-left: 4px solid var(--blue);
+  border-radius: 8px;
+  background: oklch(0.99 0.004 235 / 0.94);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  pointer-events: auto;
+  cursor: pointer;
+  backdrop-filter: blur(14px) saturate(1.18);
+}
+
+.toastNotice.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toastNotice strong {
+  color: var(--ink-strong);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.toastNotice span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .modalOverlay {
@@ -719,6 +851,16 @@ input:hover {
   flex: none;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.modalActions .danger {
+  box-shadow: 0 6px 14px oklch(0.45 0.13 28 / 0.18);
+}
+
+.modalActions .secondary {
+  background: oklch(0.965 0.006 245);
 }
 
 .modalHeader > div {

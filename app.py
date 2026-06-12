@@ -7,6 +7,7 @@ import json
 import base64
 import hashlib
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -42,6 +43,7 @@ MAIL_STATUS_PATH = RUNTIME_DIR / "mail_status.json"
 DAILY_INVALID_PATH = RUNTIME_DIR / "daily_invalid.json"
 MAIL_MESSAGES_PATH = RUNTIME_DIR / "mail_messages.json"
 SHEET_SYNC_PATH = RUNTIME_DIR / "sheet_sync_state.json"
+BOUNCE_RECORDS_PATH = RUNTIME_DIR / "bounce_records.json"
 GENERATED_CONFIG_DIR = ROOT / "work" / "campaign_configs"
 ASSET_DIR = ROOT / "work" / "assets"
 
@@ -1264,6 +1266,106 @@ def count_today_invalid(model_key: str) -> int:
     return sum(1 for item in today_invalid_entries() if item.get("model") == model_key)
 
 
+def bounce_record_identity(item: dict[str, Any]) -> tuple[str, str, str]:
+    record_date = normalize(item.get("date")) or date.today().isoformat()
+    model_key = normalize(item.get("model"))
+    email_value = normalize(item.get("email")).lower()
+    record_id = normalize(item.get("id")) or hashlib.sha1(
+        f"{record_date}|{model_key}|{email_value}".encode("utf-8", errors="replace")
+    ).hexdigest()[:16]
+    return record_id, model_key, email_value
+
+
+def today_bounce_entries() -> list[dict[str, Any]]:
+    data = read_json(BOUNCE_RECORDS_PATH, {})
+    today = date.today().isoformat()
+    if isinstance(data, dict):
+        entries = data.get(today, [])
+    elif isinstance(data, list):
+        entries = [item for item in data if item.get("date") == today]
+    else:
+        entries = []
+    return [item for item in entries if isinstance(item, dict)]
+
+
+def record_bounce_entry(model_key: str, email_value: str, reason: str, subject: str = "", sender: str = "") -> None:
+    today = date.today().isoformat()
+    data = read_json(BOUNCE_RECORDS_PATH, {})
+    if not isinstance(data, dict):
+        data = {}
+    entries = data.get(today, [])
+    if not isinstance(entries, list):
+        entries = []
+    normalized_email = normalize(email_value).lower()
+    record_id = hashlib.sha1(f"{today}|{model_key}|{normalized_email}".encode("utf-8", errors="replace")).hexdigest()[:16]
+    signature = (model_key, normalized_email)
+    for item in entries:
+        item_id, item_model, item_email = bounce_record_identity(item)
+        if (item_model, item_email) == signature:
+            item.update(
+                {
+                    "id": item_id or record_id,
+                    "time": now_iso(),
+                    "reason": reason[:1000],
+                    "subject": subject[:300],
+                    "from": sender[:300],
+                    "count": int(item.get("count", 1)) + 1,
+                }
+            )
+            break
+    else:
+        entries.insert(
+            0,
+            {
+                "date": today,
+                "time": now_iso(),
+                "id": record_id,
+                "model": model_key,
+                "email": normalized_email,
+                "reason": reason[:1000],
+                "subject": subject[:300],
+                "from": sender[:300],
+                "count": 1,
+            },
+        )
+    data[today] = entries[:200]
+    write_json(BOUNCE_RECORDS_PATH, data)
+
+
+def remove_bounce_record(record_id: str) -> dict[str, Any]:
+    today = date.today().isoformat()
+    data = read_json(BOUNCE_RECORDS_PATH, {})
+    legacy_list = isinstance(data, list)
+    if legacy_list:
+        entries = [item for item in data if isinstance(item, dict) and item.get("date") == today]
+    elif isinstance(data, dict):
+        entries = data.get(today, [])
+    else:
+        data = {}
+        entries = []
+    if not isinstance(entries, list):
+        entries = []
+    remaining: list[dict[str, Any]] = []
+    target: dict[str, Any] | None = None
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        item_id, model_key, email_value = bounce_record_identity(item)
+        if item_id == record_id:
+            target = {**item, "id": item_id, "model": model_key, "email": email_value}
+            continue
+        remaining.append(item)
+    if not target:
+        raise RuntimeError("未找到退信记录")
+    if legacy_list:
+        other_entries = [item for item in data if not (isinstance(item, dict) and item.get("date") == today)]
+        data = other_entries + remaining[:200]
+    else:
+        data[today] = remaining[:200]
+    write_json(BOUNCE_RECORDS_PATH, data)
+    return target
+
+
 def record_today_invalid(model_key: str, email_value: str, sender_profile: str, reason: str) -> None:
     today = date.today().isoformat()
     data = read_json(DAILY_INVALID_PATH, {})
@@ -1353,6 +1455,7 @@ def dashboard_status() -> dict[str, Any]:
         "models": models,
         "task": CURRENT_TASK,
         "intervention": read_interventions(),
+        "bounces": bounce_status_entries(config),
         "mail_monitor": {"running": MAIL_MONITOR_THREAD is not None and MAIL_MONITOR_THREAD.is_alive()},
         "mail_accounts": mail_account_statuses(config),
         "senders": sender_options(config),
@@ -1384,6 +1487,72 @@ def sender_options(config: dict[str, Any]) -> list[dict[str, str]]:
             }
         )
     return options
+
+
+def bounce_status_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = today_bounce_entries()
+    models = config.get("models", {})
+    result = []
+    for item in entries:
+        record_id, model_key, _email_value = bounce_record_identity(item)
+        model = models.get(model_key, {})
+        result.append(
+            {
+                **item,
+                "id": record_id,
+                "model_label": model.get("label", model_key),
+            }
+        )
+    return result
+
+
+def move_bounce_record_to_invalid(record_id: str) -> dict[str, Any]:
+    config = load_config()
+    entries = today_bounce_entries()
+    target = None
+    for item in entries:
+        item_id, model_key, email_value = bounce_record_identity(item)
+        if item_id == record_id:
+            target = {**item, "id": item_id, "model": model_key, "email": email_value}
+            break
+    if not target:
+        raise RuntimeError("未找到退信记录")
+    model_key = normalize(target.get("model"))
+    email_value = normalize(target.get("email")).lower()
+    if model_key not in config.get("models", {}):
+        raise RuntimeError("退信记录缺少有效车型")
+    if not email_value:
+        raise RuntimeError("退信记录缺少邮箱")
+    reason = normalize(target.get("reason")) or normalize(target.get("subject")) or "退信"
+    moved = mark_final_invalid_email(config, model_key, email_value, "manual_bounce", reason, "退信")
+    removed = False
+    try:
+        remove_bounce_record(record_id)
+        removed = True
+    except Exception as exc:
+        append_log(f"移出退信记录失败: {record_id} :: {exc}")
+    model = config.get("models", {}).get(model_key, {})
+    return {
+        "moved": moved,
+        "removed": removed,
+        "model": model_key,
+        "model_label": model.get("label", model_key),
+        "email": email_value,
+        "invalid_count": count_today_invalid(model_key),
+    }
+
+
+def remove_bounce_record_by_id(record_id: str) -> dict[str, Any]:
+    target = remove_bounce_record(record_id)
+    config = load_config()
+    model_key = normalize(target.get("model"))
+    model = config.get("models", {}).get(model_key, {})
+    return {
+        "removed": True,
+        "model": model_key,
+        "model_label": model.get("label", model_key),
+        "email": normalize(target.get("email")).lower(),
+    }
 
 
 def select_retry_sender_profile(
@@ -1453,14 +1622,43 @@ def mail_account_statuses(config: dict[str, Any]) -> list[dict[str, Any]]:
             item["status"] = "检查中"
         messages = saved_messages.get(resolved["key"], []) if isinstance(saved_messages, dict) else []
         if isinstance(messages, list):
-            unread_messages = [message for message in messages if not message.get("read_at")]
-            item["messages"] = unread_messages[:5]
+            unread_messages = [
+                message
+                for message in messages
+                if not message.get("read_at")
+                and not is_cached_bounce_message(config, message)
+            ]
+            item["messages"] = unread_messages[:100]
             item["new_count"] = len(unread_messages)
         else:
             item["messages"] = []
             item["new_count"] = 0
         statuses.append(item)
     return statuses
+
+
+def is_cached_bounce_message(config: dict[str, Any], message: dict[str, Any]) -> bool:
+    subject = normalize(message.get("subject"))
+    from_addr = normalize(message.get("from"))
+    text = "\n".join([normalize(message.get("snippet")), normalize(message.get("body"))])
+    return is_bounce_message(config, subject, from_addr, text)
+
+
+def clear_mail_new_flags() -> int:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return 0
+    changed = 0
+    for account_messages in messages.values():
+        if not isinstance(account_messages, list):
+            continue
+        for item in account_messages:
+            if isinstance(item, dict) and item.get("is_new"):
+                item["is_new"] = False
+                changed += 1
+    if changed:
+        write_json(MAIL_MESSAGES_PATH, messages)
+    return changed
 
 
 def anysearch_cmd(config: dict[str, Any]) -> list[str]:
@@ -1499,8 +1697,10 @@ def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) ->
     if not cmd:
         return ""
     keys = anysearch_api_keys(config) or [""]
+    shuffled = list(keys)
+    random.shuffle(shuffled)
     fallback_output = ""
-    for index, api_key in enumerate(keys):
+    for index, api_key in enumerate(shuffled):
         key_id = api_key or "__anonymous__"
         with ANYSEARCH_LOCK:
             disabled_until = ANYSEARCH_DISABLED.get(key_id, 0.0)
@@ -1525,19 +1725,19 @@ def run_anysearch(config: dict[str, Any], args: list[str], timeout: int = 60) ->
             with ANYSEARCH_LOCK:
                 ANYSEARCH_DISABLED[key_id] = time.time() + 600
             fallback_output = "anysearch_timeout"
-            append_log(f"AnySearch key {index + 1}/{len(keys)} timeout, try next key: {' '.join(args)}")
+            append_log(f"AnySearch key {index + 1}/{len(shuffled)} timeout, try next key: {' '.join(args)}")
             continue
         combined = "\n".join(part for part in [proc.stdout, proc.stderr] if part)
         if proc.returncode != 0:
-            append_log(f"AnySearch failed key {index + 1}/{len(keys)}: {' '.join(args)} :: {proc.stderr.strip()}")
+            append_log(f"AnySearch failed key {index + 1}/{len(shuffled)}: {' '.join(args)} :: {proc.stderr.strip()}")
         if anysearch_limited(combined):
             with ANYSEARCH_LOCK:
                 ANYSEARCH_DISABLED[key_id] = time.time() + 3600
             fallback_output = combined[:2000] or "anysearch_limited"
-            append_log(f"AnySearch key {index + 1}/{len(keys)} quota unavailable, switching key")
+            append_log(f"AnySearch key {index + 1}/{len(shuffled)} quota unavailable, switching key")
             continue
         if index > 0:
-            append_log(f"AnySearch using backup key {index + 1}/{len(keys)}")
+            append_log(f"AnySearch using backup key {index + 1}/{len(shuffled)}")
         return combined
     append_log("AnySearch all configured keys unavailable, switching to fallback collection")
     return fallback_output or "anysearch_limited"
@@ -2775,6 +2975,48 @@ def find_model_email_for_candidates(config: dict[str, Any], emails: list[str]) -
     return None, None
 
 
+def bounce_reason_text(subject: str, text: str) -> str:
+    cleaned = clean_message_text(text)
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    patterns = (
+        "550",
+        "551",
+        "552",
+        "553",
+        "554",
+        "5.1.",
+        "5.2.",
+        "5.3.",
+        "5.4.",
+        "5.5.",
+        "undeliver",
+        "delivery",
+        "rejected",
+        "blocked",
+        "recipient",
+        "mailbox",
+        "quota",
+        "spam",
+        "bounce",
+        "failed",
+        "host",
+        "domain",
+    )
+    selected = []
+    for line in lines:
+        lower = line.lower()
+        if any(pattern in lower for pattern in patterns):
+            selected.append(line)
+        if len(selected) >= 4:
+            break
+    if not selected:
+        selected = lines[:4]
+    reason = " / ".join(selected).strip()
+    if subject and subject not in reason:
+        reason = f"{subject}: {reason}" if reason else subject
+    return re.sub(r"\s+", " ", reason)[:1000]
+
+
 def move_intervention_to_followup(item_id: str) -> dict[str, Any]:
     item = next((entry for entry in read_interventions() if entry.get("id") == item_id), None)
     if not item:
@@ -3048,7 +3290,16 @@ def mail_message_id(account_key: str, folder: str, msg_id: str, subject: str, fr
     return hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
-def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str, from_addr: str, text: str, uid: str = "") -> None:
+def record_mail_message(
+    account_key: str,
+    folder: str,
+    msg_id: str,
+    subject: str,
+    from_addr: str,
+    text: str,
+    uid: str = "",
+    is_new: bool = False,
+) -> None:
     messages = read_json(MAIL_MESSAGES_PATH, {})
     if not isinstance(messages, dict):
         messages = {}
@@ -3064,17 +3315,23 @@ def record_mail_message(account_key: str, folder: str, msg_id: str, subject: str
         "subject": subject or "无主题",
         "snippet": re.sub(r"\s+", " ", body)[:180],
         "body": body[:12000],
+        "is_new": bool(is_new),
     }
     account_messages = messages.get(account_key, [])
     if not isinstance(account_messages, list):
         account_messages = []
     for existing in account_messages:
-        if existing.get("id") == item["id"] and existing.get("read_at"):
-            item["read_at"] = existing["read_at"]
+        if existing.get("id") == item["id"]:
+            if existing.get("read_at"):
+                item["read_at"] = existing["read_at"]
+            if existing.get("notified_at"):
+                item["notified_at"] = existing["notified_at"]
+            item["first_seen_at"] = existing.get("first_seen_at") or existing.get("time") or item["time"]
             break
+    item.setdefault("first_seen_at", item["time"])
     account_messages = [existing for existing in account_messages if existing.get("id") != item["id"]]
     account_messages.insert(0, item)
-    messages[account_key] = account_messages[:20]
+    messages[account_key] = account_messages[:200]
     write_json(MAIL_MESSAGES_PATH, messages)
 
 
@@ -3123,6 +3380,17 @@ def prune_seen_cached_messages_for_folder(account_key: str, folder: str, client:
     account_messages = messages.get(account_key, [])
     if not isinstance(account_messages, list):
         return 0
+    try:
+        search_status, search_data = client.uid("SEARCH", None, "UNSEEN")
+    except Exception as exc:
+        append_log(f"Mail cache unseen check failed: {account_key} {folder}: {exc}")
+        search_status, search_data = "", []
+
+    unseen_uids: set[str] | None = None
+    if search_status == "OK":
+        raw_uids = search_data[0].split() if search_data and search_data[0] else []
+        unseen_uids = {uid.decode("ascii", errors="ignore") for uid in raw_uids}
+
     remove_ids: set[str] = set()
     for item in account_messages:
         if normalize(item.get("folder")) != folder:
@@ -3130,6 +3398,10 @@ def prune_seen_cached_messages_for_folder(account_key: str, folder: str, client:
         uid = normalize(item.get("imap_uid"))
         item_id = normalize(item.get("id"))
         if not uid or not item_id:
+            continue
+        if unseen_uids is not None:
+            if uid not in unseen_uids:
+                remove_ids.add(item_id)
             continue
         try:
             fetch_status, flags_data = client.uid("FETCH", uid, "(FLAGS)")
@@ -3242,18 +3514,25 @@ def mail_message_matches_intervention(message: dict[str, Any], intervention: dic
     target_from = mail_match_text(intervention.get("from"))
     target_subject = mail_match_text(intervention.get("subject"))
     target_email = mail_match_text(intervention.get("email"))
+    target_model = mail_match_text(intervention.get("model"))
     target_body = mail_match_text(intervention.get("snippet") or intervention.get("body"))
     message_from = mail_match_text(message.get("from"))
     message_subject = mail_match_text(message.get("subject"))
     message_body = mail_match_text(message.get("snippet") or message.get("body"))
+    message_text_value = mail_match_text(f"{message.get('from', '')} {message.get('body', '')} {message.get('snippet', '')}")
     from_matches = bool(target_from and message_from == target_from) or bool(target_email and target_email in message_from)
-    subject_matches = bool(target_subject and message_subject == target_subject)
+    email_matches = bool(target_email and target_email in message_text_value)
+    subject_matches = bool(
+        target_subject
+        and (message_subject == target_subject or target_subject in message_subject or message_subject in target_subject)
+    )
     body_matches = bool(
         target_body
         and message_body
         and (target_body[:120] in message_body or message_body[:120] in target_body)
     )
-    return subject_matches and (from_matches or body_matches)
+    model_matches = bool(target_model and target_model.replace("_", " ") in message_subject)
+    return bool((from_matches or email_matches) and (subject_matches or body_matches or model_matches or not target_subject))
 
 
 def close_matching_interventions_for_mail_message(message: dict[str, Any]) -> list[dict[str, str]]:
@@ -3298,6 +3577,26 @@ def remove_matching_mail_messages(intervention: dict[str, Any]) -> list[dict[str
     return removed
 
 
+def mark_matching_mail_messages_read(intervention: dict[str, Any]) -> list[dict[str, str]]:
+    messages = read_json(MAIL_MESSAGES_PATH, {})
+    if not isinstance(messages, dict):
+        return []
+    updated: list[dict[str, str]] = []
+    changed = False
+    for account_key, account_messages in list(messages.items()):
+        if not isinstance(account_messages, list):
+            continue
+        for item in account_messages:
+            if mail_message_matches_intervention(item, intervention):
+                if not item.get("read_at"):
+                    item["read_at"] = now_iso()
+                    changed = True
+                updated.append({"account_key": account_key, "id": normalize(item.get("id"))})
+    if changed:
+        write_json(MAIL_MESSAGES_PATH, messages)
+    return updated
+
+
 def poll_mail_once() -> dict[str, Any]:
     config = load_config()
     mail_cfg = config.get("mail_monitor", {})
@@ -3334,7 +3633,14 @@ def poll_mail_once() -> dict[str, Any]:
                 for bounced in dict.fromkeys(emails):
                     model_key = find_model_for_email(config, bounced)
                     if model_key:
-                        retry_after_bounce(config, model_key, bounced)
+                        record_bounce_entry(
+                            model_key,
+                            bounced,
+                            bounce_reason_text(subject, text),
+                            subject=subject,
+                            sender=from_addr,
+                        )
+                        append_log(f"退信已记录，不自动重发: {model_key} {bounced}")
                         bounces += 1
                         break
             elif any(token.lower() in lower for token in config.get("interest_keywords", [])):
@@ -3356,9 +3662,11 @@ def poll_mail_once() -> dict[str, Any]:
 
 def mail_monitor_loop() -> None:
     append_log("邮件监控已启动")
+    suppress_notifications = True
     while not MAIL_MONITOR_STOP.is_set():
         try:
-            result = poll_mail_once()
+            result = poll_mail_once(suppress_notifications=suppress_notifications)
+            suppress_notifications = False
             append_log("邮件监控: " + json.dumps(result, ensure_ascii=False))
         except Exception as exc:
             append_log(f"邮件监控错误: {exc}")
@@ -3398,7 +3706,14 @@ def process_mail_message(config: dict[str, Any], raw: bytes, source_sender_profi
         for bounced in dict.fromkeys(emails):
             model_key = find_model_for_email_sent_today(config, bounced)
             if model_key:
-                retry_after_bounce(config, model_key, bounced, source_sender_profile=source_sender_profile)
+                record_bounce_entry(
+                    model_key,
+                    bounced,
+                    bounce_reason_text(subject, text),
+                    subject=subject,
+                    sender=from_addr,
+                )
+                append_log(f"退信已记录，不自动重发: {model_key} {bounced}")
                 return 1, 0
             existing_model = find_model_for_email(config, bounced)
             if existing_model and old_match is None:
@@ -3429,7 +3744,12 @@ def process_mail_message(config: dict[str, Any], raw: bytes, source_sender_profi
     return 0, 0
 
 
-def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed: dict[str, str]) -> dict[str, Any]:
+def poll_mail_account(
+    config: dict[str, Any],
+    account: dict[str, Any],
+    processed: dict[str, str],
+    suppress_notifications: bool = False,
+) -> dict[str, Any]:
     resolved = resolve_mail_account(config, account)
     status = {
         "key": resolved["key"],
@@ -3473,8 +3793,21 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
                     subject = decode_mime_header(msg.get("Subject"))
                     from_addr = decode_mime_header(msg.get("From"))
                     text = message_text(msg)
-                    record_mail_message(resolved["key"], folder, uid_text, subject, from_addr, text, uid=uid_text)
-                    if processed.get(msg_key):
+                    is_new_message = not processed.get(msg_key)
+                    record_mail_message(
+                        resolved["key"],
+                        folder,
+                        uid_text,
+                        subject,
+                        from_addr,
+                        text,
+                        uid=uid_text,
+                        is_new=is_new_message and not suppress_notifications,
+                    )
+                    if not is_new_message:
+                        continue
+                    if suppress_notifications:
+                        processed[msg_key] = now_iso()
                         continue
                     bounces, interested = process_mail_message(
                         config,
@@ -3492,20 +3825,22 @@ def poll_mail_account(config: dict[str, Any], account: dict[str, Any], processed
     return status
 
 
-def poll_mail_once() -> dict[str, Any]:
+def poll_mail_once(suppress_notifications: bool = False) -> dict[str, Any]:
     config = load_config()
     processed = read_json(RUNTIME_DIR / "mail_processed.json", {})
     statuses = {}
     total = {"checked": 0, "bounces": 0, "interested": 0}
     for account in config.get("mail_accounts", []):
-        result = poll_mail_account(config, account, processed)
+        result = poll_mail_account(config, account, processed, suppress_notifications=suppress_notifications)
         statuses[result["key"]] = result
         total["checked"] += int(result.get("checked", 0))
         total["bounces"] += int(result.get("bounces", 0))
         total["interested"] += int(result.get("interested", 0))
     write_json(RUNTIME_DIR / "mail_processed.json", processed)
     write_json(MAIL_STATUS_PATH, statuses)
-    return {"ok": True, "accounts": list(statuses.values()), **total}
+    if suppress_notifications:
+        clear_mail_new_flags()
+    return {"ok": True, "accounts": list(statuses.values()), "suppressed_notifications": suppress_notifications, **total}
 
 
 def start_mail_monitor() -> dict[str, Any]:
@@ -3663,6 +3998,20 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 closed_interventions = close_matching_interventions_for_mail_message(target or {})
                 self.send_json({"ok": True, **result, "closed_interventions": closed_interventions})
                 return
+            if self.path == "/api/bounce/invalid":
+                body = self.read_body()
+                record_id = normalize(body.get("id"))
+                if not record_id:
+                    raise RuntimeError("缺少退信记录ID")
+                self.send_json({"ok": True, **move_bounce_record_to_invalid(record_id)})
+                return
+            if self.path == "/api/bounce/remove":
+                body = self.read_body()
+                record_id = normalize(body.get("id"))
+                if not record_id:
+                    raise RuntimeError("缺少退信记录ID")
+                self.send_json({"ok": True, **remove_bounce_record_by_id(record_id)})
+                return
             if self.path == "/api/intervention/close":
                 body = self.read_body()
                 item_id = normalize(body.get("id"))
@@ -3687,8 +4036,10 @@ class ApiHandler(SimpleHTTPRequestHandler):
                 item_id = normalize(body.get("id"))
                 if not item_id:
                     raise RuntimeError("缺少邮件ID")
+                target = next((item for item in read_interventions() if item.get("id") == item_id), None)
                 updated = update_intervention(item_id, {"read_at": now_iso()})
-                self.send_json({"ok": True, "updated": updated})
+                read_mail_messages = mark_matching_mail_messages_read(target or {}) if updated else []
+                self.send_json({"ok": True, "updated": updated, "read_mail_messages": read_mail_messages})
                 return
             if self.path == "/api/intervention/followup":
                 body = self.read_body()

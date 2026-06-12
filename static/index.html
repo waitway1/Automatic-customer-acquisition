@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>客户运营台</title>
-    <link rel="stylesheet" href="/styles.css?v=2026060901">
+    <link rel="stylesheet" href="/styles.css?v=2026060907">
   </head>
   <body>
     <header class="topbar">
@@ -98,6 +98,16 @@
           <div id="interventionList" class="list"></div>
         </div>
       </section>
+
+      <section>
+        <div class="sectionHeader">
+          <div>
+            <h2>退信记录</h2>
+            <p>退信车型、邮箱和原因</p>
+          </div>
+        </div>
+        <div id="bounceList" class="bounceList"></div>
+      </section>
     </main>
 
     <dialog id="mailModal" class="modalOverlay">
@@ -110,6 +120,8 @@
           <div class="modalActions">
             <button id="markReadBtn">已读</button>
             <button id="moveFollowupBtn" class="secondary">移入跟进</button>
+            <button id="moveInvalidBtn" class="danger">移入失效邮箱</button>
+            <button id="removeBounceBtn" class="secondary">移出退信</button>
             <button id="closeModalBtn" class="iconButton" aria-label="关闭" title="关闭">&times;</button>
           </div>
         </div>
@@ -117,6 +129,6 @@
       </div>
     </dialog>
 
-    <script src="/app.js?v=2026060901"></script>
+    <script src="/app.js?v=2026060908"></script>
   </body>
 </html>

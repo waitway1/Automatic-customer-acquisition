@@ -2,6 +2,7 @@ const state = {
   models: [],
   senders: [],
   interventions: [],
+  bounces: [],
   mailAccounts: [],
   taskRunning: false,
   modalItem: null,
@@ -13,6 +14,34 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+const MAIL_NOTIFY_STORAGE_KEY = "celeste.seenMailNotificationKeys.v1";
+const INTERVENTION_NOTIFY_STORAGE_KEY = "celeste.seenInterventionNotificationKeys.v1";
+const OPENED_MAIL_STORAGE_KEY = "celeste.openedMailKeys.v1";
+const OPENED_INTERVENTION_STORAGE_KEY = "celeste.openedInterventionKeys.v1";
+const MAX_STORED_NOTIFICATION_KEYS = 800;
+
+function loadStoredKeySet(storageKey) {
+  try {
+    const values = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    return new Set(Array.isArray(values) ? values.filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveStoredKeySet(storageKey, keys) {
+  try {
+    const values = [...keys].filter(Boolean).slice(-MAX_STORED_NOTIFICATION_KEYS);
+    localStorage.setItem(storageKey, JSON.stringify(values));
+  } catch {
+    // Notification de-dupe should not block dashboard refresh.
+  }
+}
+
+const seenMailNotificationKeys = loadStoredKeySet(MAIL_NOTIFY_STORAGE_KEY);
+const seenInterventionNotificationKeys = loadStoredKeySet(INTERVENTION_NOTIFY_STORAGE_KEY);
+const openedMailKeys = loadStoredKeySet(OPENED_MAIL_STORAGE_KEY);
+const openedInterventionKeys = loadStoredKeySet(OPENED_INTERVENTION_STORAGE_KEY);
 
 function escapeHtml(value) {
   return String(value || "")
@@ -44,50 +73,97 @@ function interventionKey(item) {
   return item.id || [item.from, item.subject, item.email, item.time].filter(Boolean).join("|");
 }
 
+function isInterventionOpened(item) {
+  return Boolean(item?.read_at) || openedInterventionKeys.has(interventionKey(item));
+}
+
+function markInterventionOpenedLocallyState(item) {
+  if (!item) return;
+  item.read_at = item.read_at || new Date().toISOString();
+  const key = interventionKey(item);
+  if (key) {
+    openedInterventionKeys.add(key);
+    saveStoredKeySet(OPENED_INTERVENTION_STORAGE_KEY, openedInterventionKeys);
+  }
+}
+
 function mailMessageKey(account, message) {
   return [account?.key, message?.id || message?.imap_uid, message?.subject, message?.from].filter(Boolean).join("|");
 }
 
-async function requestInterventionNotificationPermission() {
-  if (!("Notification" in window)) return false;
-  if (Notification.permission === "granted") return true;
-  if (Notification.permission !== "default") return false;
-  try {
-    const permission = await Notification.requestPermission();
-    return permission === "granted";
-  } catch {
-    return false;
+function messageOpenedKey(accountKey, message) {
+  return [accountKey, message?.id || message?.imap_uid, message?.subject, message?.from].filter(Boolean).join("|");
+}
+
+function isMailOpened(accountKey, message) {
+  return Boolean(message?.opened_at) || openedMailKeys.has(messageOpenedKey(accountKey, message));
+}
+
+function markMailOpenedLocally(accountKey, message) {
+  if (!message) return;
+  message.opened_at = message.opened_at || new Date().toISOString();
+  const key = messageOpenedKey(accountKey, message);
+  if (key) {
+    openedMailKeys.add(key);
+    saveStoredKeySet(OPENED_MAIL_STORAGE_KEY, openedMailKeys);
   }
+}
+
+function showAutoDismissNotification(title, options = {}) {
+  let region = $("toastRegion");
+  if (!region) {
+    region = document.createElement("div");
+    region.id = "toastRegion";
+    region.className = "toastRegion";
+    region.setAttribute("aria-live", "polite");
+    region.setAttribute("aria-atomic", "false");
+    document.body.appendChild(region);
+  }
+  const toast = document.createElement("div");
+  toast.className = "toastNotice";
+  toast.setAttribute("role", "status");
+  const body = shortText(options.body || "", 180);
+  toast.innerHTML = `
+    <strong>${escapeHtml(title)}</strong>
+    ${body ? `<span>${escapeHtml(body)}</span>` : ""}
+  `;
+  region.appendChild(toast);
+  const visibleToasts = [...region.querySelectorAll(".toastNotice")];
+  visibleToasts.slice(0, Math.max(0, visibleToasts.length - 4)).forEach((item) => item.remove());
+  requestAnimationFrame(() => toast.classList.add("visible"));
+  const close = () => {
+    toast.classList.remove("visible");
+    window.setTimeout(() => toast.remove(), 220);
+  };
+  const timeoutMs = Number(options.timeoutMs || 4500);
+  const timer = window.setTimeout(close, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 4500);
+  toast.addEventListener("click", () => {
+    window.clearTimeout(timer);
+    close();
+  }, { once: true });
+  return toast;
+}
+
+async function requestInterventionNotificationPermission() {
+  return false;
 }
 
 function notifyIntervention(item) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
   const key = interventionKey(item);
   const detail = [item.from, item.subject, item.snippet || item.body].filter(Boolean).join(" ");
-  try {
-    new Notification("新的待人工跟进邮件", {
-      body: shortText(detail, 180),
-      tag: key ? `intervention-${key}` : "intervention-mail",
-      requireInteraction: true,
-    });
-  } catch {
-    // Browser notification support varies; keep the dashboard refresh working.
-  }
+  showAutoDismissNotification("新的待人工跟进邮件", {
+    body: shortText(detail, 180),
+    tag: key ? `intervention-${key}` : "intervention-mail",
+  });
 }
 
 function notifyMailMessage(account, message) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
   const key = mailMessageKey(account, message);
   const detail = [account?.label, message.from, message.subject, message.snippet || message.body].filter(Boolean).join(" ");
-  try {
-    new Notification("收到新邮件", {
-      body: shortText(detail, 180),
-      tag: key ? `mail-${key}` : "mail-message",
-      requireInteraction: true,
-    });
-  } catch {
-    // Browser notification support varies; keep the dashboard refresh working.
-  }
+  showAutoDismissNotification("收到新邮件", {
+    body: shortText(detail, 180),
+    tag: key ? `mail-${key}` : "mail-message",
+  });
 }
 
 function syncMailNotifications(accounts) {
@@ -100,15 +176,23 @@ function syncMailNotifications(accounts) {
   const activeKeys = new Set(unreadMessages.map(({ account, message }) => mailMessageKey(account, message)).filter(Boolean));
   if (!state.mailSnapshotReady) {
     state.knownMailKeys = activeKeys;
+    activeKeys.forEach((key) => seenMailNotificationKeys.add(key));
+    saveStoredKeySet(MAIL_NOTIFY_STORAGE_KEY, seenMailNotificationKeys);
     state.mailSnapshotReady = true;
     return;
   }
   unreadMessages
     .filter(({ account, message }) => {
       const key = mailMessageKey(account, message);
-      return key && !state.knownMailKeys.has(key);
+      return key && message.is_new === true && !state.knownMailKeys.has(key) && !seenMailNotificationKeys.has(key);
     })
-    .forEach(({ account, message }) => notifyMailMessage(account, message));
+    .forEach(({ account, message }) => {
+      const key = mailMessageKey(account, message);
+      seenMailNotificationKeys.add(key);
+      notifyMailMessage(account, message);
+    });
+  activeKeys.forEach((key) => seenMailNotificationKeys.add(key));
+  saveStoredKeySet(MAIL_NOTIFY_STORAGE_KEY, seenMailNotificationKeys);
   state.knownMailKeys = activeKeys;
 }
 
@@ -117,23 +201,28 @@ function syncInterventionNotifications(items) {
   const activeKeys = new Set(activeItems.map(interventionKey).filter(Boolean));
   if (!state.interventionSnapshotReady) {
     state.knownInterventionKeys = activeKeys;
+    activeKeys.forEach((key) => seenInterventionNotificationKeys.add(key));
+    saveStoredKeySet(INTERVENTION_NOTIFY_STORAGE_KEY, seenInterventionNotificationKeys);
     state.interventionSnapshotReady = true;
     return;
   }
   activeItems
     .filter((item) => {
       const key = interventionKey(item);
-      return key && !state.knownInterventionKeys.has(key);
+      return key && !state.knownInterventionKeys.has(key) && !seenInterventionNotificationKeys.has(key);
     })
-    .forEach(notifyIntervention);
+    .forEach((item) => {
+      const key = interventionKey(item);
+      seenInterventionNotificationKeys.add(key);
+      notifyIntervention(item);
+    });
+  activeKeys.forEach((key) => seenInterventionNotificationKeys.add(key));
+  saveStoredKeySet(INTERVENTION_NOTIFY_STORAGE_KEY, seenInterventionNotificationKeys);
   state.knownInterventionKeys = activeKeys;
 }
 
 function setupInterventionNotifications() {
-  requestInterventionNotificationPermission();
-  ["pointerdown", "keydown"].forEach((eventName) => {
-    window.addEventListener(eventName, requestInterventionNotificationPermission, { once: true });
-  });
+  // Keep notifications inside the page. Windows/Chrome system notifications can remain in the notification center.
 }
 
 async function api(path, options = {}) {
@@ -288,7 +377,7 @@ function renderMailAccounts(accounts) {
           ? `<div class="mailMessageList">${messages
               .map(
                 (message) => `
-                  <button class="mailPreview mailInboxPreview ${message.read_at ? "read" : "unread"}" data-account-key="${escapeHtml(account.key)}" data-mail-id="${escapeHtml(message.id)}" type="button">
+                  <button class="mailPreview mailInboxPreview ${isMailOpened(account.key, message) ? "opened" : "unopened"}" data-account-key="${escapeHtml(account.key)}" data-mail-id="${escapeHtml(message.id)}" type="button">
                     <span class="unreadDot" aria-hidden="true"></span>
                     <span class="mailPreviewFrom">${escapeHtml(message.from || "")}</span>
                     <strong>${escapeHtml(shortText(message.subject || "无主题", 80))}</strong>
@@ -315,7 +404,7 @@ function renderIntervention(items) {
   }
   active.forEach((item, index) => {
     const node = document.createElement("div");
-    node.className = `followItem ${item.read_at ? "read" : "unread"}`;
+    node.className = `followItem ${isInterventionOpened(item) ? "read" : "unread"}`;
     const itemId = item.id || String(index);
     node.innerHTML = `
       <div class="cardTitle">
@@ -336,6 +425,39 @@ function renderIntervention(items) {
   });
 }
 
+function renderBounces(items) {
+  const list = $("bounceList");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!items.length) {
+    list.innerHTML = `<div class="empty">今天还没有记录到退信邮箱。</div>`;
+    return;
+  }
+  items.forEach((item) => {
+    const node = document.createElement("div");
+    node.className = "bounceItem";
+    node.dataset.bounceId = item.id || "";
+    node.tabIndex = 0;
+    node.setAttribute("role", "button");
+    node.innerHTML = `
+      <div class="bounceHead">
+        <strong>${escapeHtml(item.model_label || item.model || "未知车型")}</strong>
+        <span>${escapeHtml(item.time || "")}</span>
+      </div>
+      <div class="bounceEmail">${escapeHtml(item.email || "")}</div>
+      <p>${escapeHtml(shortText(item.reason || item.subject || "未提取到退信原因", 180))}</p>
+    `;
+    node.addEventListener("click", () => openMailModal(item, { type: "bounce" }));
+    node.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openMailModal(item, { type: "bounce" });
+      }
+    });
+    list.appendChild(node);
+  });
+}
+
 function mailMatchText(value) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
 }
@@ -344,15 +466,19 @@ function localMailMatchesIntervention(message, intervention) {
   const targetFrom = mailMatchText(intervention.from);
   const targetSubject = mailMatchText(intervention.subject);
   const targetEmail = mailMatchText(intervention.email);
+  const targetModel = mailMatchText(intervention.model);
   const targetBody = mailMatchText(intervention.snippet || intervention.body);
   const messageFrom = mailMatchText(message.from);
   const messageSubject = mailMatchText(message.subject);
   const messageBody = mailMatchText(message.snippet || message.body);
+  const messageEmailText = mailMatchText(`${message.from || ""} ${message.body || ""} ${message.snippet || ""}`);
   const fromMatches = (targetFrom && messageFrom === targetFrom) || (targetEmail && messageFrom.includes(targetEmail));
-  const subjectMatches = targetSubject && messageSubject === targetSubject;
+  const emailMatches = targetEmail && messageEmailText.includes(targetEmail);
+  const subjectMatches = targetSubject && (messageSubject === targetSubject || messageSubject.includes(targetSubject) || targetSubject.includes(messageSubject));
   const bodyMatches =
     targetBody && messageBody && (messageBody.includes(targetBody.slice(0, 120)) || targetBody.includes(messageBody.slice(0, 120)));
-  return subjectMatches && (fromMatches || bodyMatches);
+  const modelMatches = targetModel && messageSubject.includes(targetModel.replace("_", " "));
+  return Boolean((fromMatches || emailMatches) && (subjectMatches || bodyMatches || modelMatches || !targetSubject));
 }
 
 function removeLocalMailboxMessages(records = [], fallbackIntervention = null) {
@@ -380,18 +506,83 @@ function closeLocalInterventions(records = [], fallbackMessage = null) {
   });
 }
 
+function markMatchingMailboxOpenedForIntervention(intervention) {
+  state.mailAccounts.forEach((account) => {
+    (account.messages || []).forEach((message) => {
+      if (localMailMatchesIntervention(message, intervention)) {
+        markMailOpenedLocally(account.key || "", message);
+      }
+    });
+  });
+}
+
+async function markInterventionOpenedLocally(item) {
+  if (!item) return;
+  markInterventionOpenedLocallyState(item);
+  markMatchingMailboxOpenedForIntervention(item);
+  renderIntervention(state.interventions);
+  renderMailAccounts(state.mailAccounts);
+  if (!item.id) return;
+  try {
+    const result = await api("/api/intervention/read", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    (result.read_mail_messages || []).forEach((record) => {
+      const account = state.mailAccounts.find((entry) => entry.key === record.account_key);
+      const message = (account?.messages || []).find((entry) => entry.id === record.id);
+      if (message) markMailOpenedLocally(account.key || "", message);
+    });
+    renderMailAccounts(state.mailAccounts);
+  } catch {
+    // Local read state is enough for the current dashboard refresh.
+  }
+}
+
 async function openMailModal(item, options = {}) {
   const modal = $("mailModal");
   state.modalItem = item;
   state.modalOptions = options;
-  $("modalSubject").textContent = item.subject || "无主题";
-  $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
-  $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
+  if (options.type === "mailbox") {
+    markMailOpenedLocally(options.accountKey || "", item);
+    renderMailAccounts(state.mailAccounts);
+  }
+  if (options.type === "intervention") {
+    markInterventionOpenedLocally(item);
+  }
+  if (options.type === "bounce") {
+    $("modalSubject").textContent = `${item.model_label || item.model || "未知车型"} 退信`;
+    $("modalFrom").textContent = `${item.email || ""}${item.time ? ` · ${item.time}` : ""}`;
+    $("modalBody").innerHTML = textToHtml(
+      [
+        `退信车型：${item.model_label || item.model || "未知车型"}`,
+        `退信邮箱：${item.email || ""}`,
+        item.subject ? `退信主题：${item.subject}` : "",
+        item.from ? `来源：${item.from}` : "",
+        "",
+        item.reason || "未提取到退信原因",
+      ]
+        .filter((line) => line !== "")
+        .join("\n")
+    );
+  } else {
+    $("modalSubject").textContent = item.subject || "无主题";
+    $("modalFrom").textContent = `${item.from || ""}${item.time ? ` · ${item.time}` : ""}`;
+    $("modalBody").innerHTML = textToHtml(item.body || item.snippet || "");
+  }
   $("markReadBtn").hidden = !["mailbox", "intervention"].includes(options.type);
   const moveButton = $("moveFollowupBtn");
   moveButton.hidden = options.type !== "intervention";
   moveButton.disabled = Boolean(item.moved_to_followup);
   moveButton.textContent = item.moved_to_followup ? "已移入跟进" : "移入跟进";
+  const invalidButton = $("moveInvalidBtn");
+  invalidButton.hidden = options.type !== "bounce";
+  invalidButton.disabled = Boolean(item.moved_to_invalid);
+  invalidButton.textContent = item.moved_to_invalid ? "已移入失效邮箱" : "移入失效邮箱";
+  const removeBounceButton = $("removeBounceBtn");
+  removeBounceButton.hidden = options.type !== "bounce";
+  removeBounceButton.disabled = false;
+  removeBounceButton.textContent = "移出退信";
   if (typeof modal.showModal === "function" && !modal.open) {
     modal.showModal();
   } else {
@@ -411,6 +602,10 @@ function closeMailModal() {
   $("markReadBtn").hidden = true;
   $("moveFollowupBtn").hidden = true;
   $("moveFollowupBtn").disabled = false;
+  $("moveInvalidBtn").hidden = true;
+  $("moveInvalidBtn").disabled = false;
+  $("removeBounceBtn").hidden = true;
+  $("removeBounceBtn").disabled = false;
 }
 
 async function markCurrentMailRead() {
@@ -478,6 +673,54 @@ async function moveCurrentInterventionToFollowup() {
   }
 }
 
+async function moveCurrentBounceToInvalid() {
+  const item = state.modalItem;
+  const options = state.modalOptions || {};
+  if (!item || options.type !== "bounce") return;
+  const button = $("moveInvalidBtn");
+  const removeButton = $("removeBounceBtn");
+  button.disabled = true;
+  removeButton.disabled = true;
+  try {
+    await api("/api/bounce/invalid", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    state.bounces = state.bounces.filter((entry) => entry.id !== item.id);
+    renderBounces(state.bounces);
+    closeMailModal();
+    await refresh();
+  } catch (error) {
+    button.disabled = false;
+    removeButton.disabled = false;
+    alert(error.message || "移入失效邮箱失败");
+  }
+}
+
+async function removeCurrentBounceRecord() {
+  const item = state.modalItem;
+  const options = state.modalOptions || {};
+  if (!item || options.type !== "bounce") return;
+  const button = $("removeBounceBtn");
+  const invalidButton = $("moveInvalidBtn");
+  button.disabled = true;
+  invalidButton.disabled = true;
+  try {
+    await api("/api/bounce/remove", {
+      method: "POST",
+      body: JSON.stringify({ id: item.id }),
+    });
+    state.bounces = state.bounces.filter((entry) => entry.id !== item.id);
+    renderBounces(state.bounces);
+    closeMailModal();
+    await refresh();
+  } catch (error) {
+    button.disabled = false;
+    invalidButton.disabled = false;
+    alert(error.message || "移出退信失败");
+  }
+}
+
 function renderTask(task) {
   const label = $("taskState");
   if (!task) {
@@ -497,6 +740,7 @@ async function refresh() {
   state.models = data.models || [];
   state.senders = data.senders || [];
   state.interventions = data.intervention || [];
+  state.bounces = data.bounces || [];
   state.mailAccounts = data.mail_accounts || [];
   $("clock").textContent = `最后刷新 ${data.now}`;
   const total = state.models.reduce((sum, model) => sum + (model.count || 0), 0);
@@ -513,6 +757,7 @@ async function refresh() {
   renderModels(state.models);
   renderMailAccounts(state.mailAccounts);
   renderIntervention(state.interventions);
+  renderBounces(state.bounces);
   renderTask(data.task);
   return data;
 }
@@ -608,6 +853,8 @@ $("mailGrid").addEventListener("click", (event) => {
 });
 $("markReadBtn").addEventListener("click", markCurrentMailRead);
 $("moveFollowupBtn").addEventListener("click", moveCurrentInterventionToFollowup);
+$("moveInvalidBtn").addEventListener("click", moveCurrentBounceToInvalid);
+$("removeBounceBtn").addEventListener("click", removeCurrentBounceRecord);
 $("closeModalBtn").addEventListener("click", closeMailModal);
 $("mailModal").addEventListener("click", (event) => {
   if (event.target === $("mailModal")) closeMailModal();
