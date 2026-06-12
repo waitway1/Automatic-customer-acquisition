@@ -37,7 +37,7 @@ body {
   min-height: 100vh;
   margin: 0;
   display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   background: var(--page);
   color: var(--ink);
   font-family: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", Arial, sans-serif;
@@ -54,25 +54,25 @@ p {
 
 h1 {
   color: var(--rail-ink);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 720;
-  line-height: 1.15;
+  line-height: 1.2;
   text-wrap: balance;
 }
 
 h2 {
   color: var(--ink-strong);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
   text-wrap: balance;
 }
 
 h3 {
   color: var(--ink-strong);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 
 button,
@@ -82,7 +82,7 @@ input {
 }
 
 button {
-  min-height: 38px;
+  min-height: 36px;
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 14px;
@@ -122,8 +122,8 @@ button:disabled {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 18px;
-  padding: 24px 18px;
+  gap: 16px;
+  padding: 20px 16px;
   background: var(--rail);
   color: var(--rail-ink);
   border-right: 1px solid oklch(1 0 0 / 0.08);
@@ -131,41 +131,43 @@ button:disabled {
 
 .brandBlock {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
 }
 
 .brandMark {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: 8px;
   background: oklch(0.62 0.18 252);
   color: white;
   font-weight: 800;
+  font-size: 15px;
   box-shadow: var(--shadow-1);
 }
 
 #clock {
-  margin-top: 7px;
+  margin-top: 5px;
   color: var(--rail-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .actions {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: 4px;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid oklch(1 0 0 / 0.1);
 }
 
 .actions button {
   width: 100%;
+  font-size: 13px;
 }
 
 .secondary,
@@ -195,8 +197,8 @@ button:disabled {
 }
 
 .ghost {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 8px;
   font-size: 12px;
   font-weight: 650;
 }
@@ -236,26 +238,26 @@ button[data-reset]:disabled {
 }
 
 .iconButton {
-  width: 36px;
-  min-height: 36px;
+  width: 34px;
+  min-height: 34px;
   padding: 0;
-  font-size: 23px;
+  font-size: 20px;
   line-height: 1;
 }
 
 main {
   min-width: 0;
   width: 100%;
-  max-width: 1480px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 28px 30px 42px;
+  padding: 24px 28px 40px;
 }
 
 .summaryBand {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 20px;
 }
 
 .summaryBand > div,
@@ -272,8 +274,8 @@ main {
 }
 
 .summaryBand > div {
-  min-height: 98px;
-  padding: 16px;
+  min-height: 88px;
+  padding: 14px;
   display: grid;
   align-content: space-between;
 }
@@ -295,14 +297,14 @@ label,
 
 .summaryBand strong {
   color: var(--ink-strong);
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 760;
   line-height: 1;
 }
 
 .panel {
   padding: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .sendPanel {
@@ -313,39 +315,39 @@ label,
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  margin: 24px 0 12px;
+  gap: 12px;
+  margin: 20px 0 10px;
 }
 
 .sectionHeader.tight {
   align-items: center;
-  margin: 0 0 14px;
+  margin: 0 0 12px;
 }
 
 .sectionHeader p {
-  margin-top: 4px;
+  margin-top: 3px;
 }
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(180px, 1.1fr) minmax(116px, 0.55fr) minmax(220px, 1.3fr) auto;
-  gap: 12px;
+  grid-template-columns: 1fr 120px 1fr auto;
+  gap: 10px;
   align-items: end;
 }
 
 label {
   display: grid;
-  gap: 7px;
+  gap: 5px;
   font-weight: 600;
 }
 
 select,
 input {
   width: 100%;
-  min-height: 38px;
+  min-height: 36px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 0 11px;
+  padding: 0 10px;
   background: white;
   color: var(--ink);
   outline: none;
@@ -358,21 +360,21 @@ input:hover {
 
 .modelGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(176px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  gap: 10px;
 }
 
 .modelCard,
 .mailCard,
 .followItem,
 .empty {
-  padding: 14px;
+  padding: 12px;
 }
 
 .modelCard,
 .mailCard,
 .followItem {
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  transition: border-color 160ms ease, background-color 160ms ease;
 }
 
 .modelCard:hover,
@@ -386,7 +388,7 @@ input:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   flex-wrap: wrap;
 }
@@ -396,31 +398,33 @@ input:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
 }
 
 .modelActions {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: none;
 }
 
 .modelActions .ghost {
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
 }
 
 .primaryMetric {
-  margin-top: 14px;
-  padding-bottom: 12px;
+  margin-top: 10px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
 
 .primaryMetric strong {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   color: var(--ink-strong);
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 760;
   line-height: 1;
 }
@@ -428,8 +432,8 @@ input:hover {
 .metricStrip,
 .mailStats {
   display: grid;
-  gap: 8px;
-  margin-top: 12px;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .metricStrip {
@@ -443,25 +447,25 @@ input:hover {
 .metricStrip div,
 .mailStats div {
   min-width: 0;
-  border-radius: 8px;
-  padding: 9px;
+  border-radius: 6px;
+  padding: 7px 8px;
   background: var(--panel-muted);
 }
 
 .metricStrip strong,
 .mailStats strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--ink-strong);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 720;
   line-height: 1;
 }
 
 .twoColumn {
   display: grid;
-  grid-template-columns: minmax(330px, 0.92fr) minmax(0, 1.08fr);
-  gap: 18px;
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 1.2fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -473,11 +477,11 @@ input:hover {
 .list,
 .bounceList {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .bounceList {
-  max-height: 420px;
+  max-height: 400px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 3px;
@@ -486,15 +490,15 @@ input:hover {
 .badge,
 .task {
   display: inline-flex;
-  min-height: 26px;
+  min-height: 24px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0 9px;
+  padding: 0 8px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
   white-space: nowrap;
 }
@@ -526,16 +530,16 @@ input:hover {
 }
 
 .mailUser {
-  margin-top: 8px;
+  margin-top: 6px;
   overflow-wrap: anywhere;
 }
 
 .mailMessageList {
   display: grid;
-  gap: 7px;
-  max-height: 360px;
-  margin-top: 12px;
-  padding-top: 12px;
+  gap: 6px;
+  max-height: 340px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -545,14 +549,14 @@ input:hover {
 .mailInboxPreview {
   position: relative;
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(0, 1fr);
   gap: 2px 8px;
   align-items: center;
   width: 100%;
   min-height: 0;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 6px;
+  padding: 7px 10px;
   background: white;
   color: var(--muted);
   text-align: left;
@@ -582,7 +586,7 @@ input:hover {
 
 .mailInboxPreview .mailPreviewFrom {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .mailInboxPreview strong {
@@ -600,8 +604,8 @@ input:hover {
 }
 
 .unreadDot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: oklch(0.57 0.24 255);
   box-shadow: 0 0 0 3px oklch(0.57 0.24 255 / 0.16);
@@ -623,21 +627,21 @@ input:hover {
 }
 
 .errorText {
-  margin-top: 8px;
+  margin-top: 6px;
   color: var(--red);
-  font-size: 13px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 
 .followItem {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .mailHeading {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 8px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -652,7 +656,7 @@ input:hover {
 
 .mailPreview {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   width: 100%;
   min-height: 0;
   border: 0;
@@ -681,25 +685,25 @@ input:hover {
 
 .followBadge {
   width: fit-content;
-  min-height: 24px;
+  min-height: 22px;
   display: inline-flex;
   align-items: center;
   border: 1px solid oklch(0.79 0.08 155);
   border-radius: 999px;
-  padding: 0 8px;
+  padding: 0 7px;
   background: oklch(0.94 0.035 155);
   color: oklch(0.38 0.105 155);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 650;
 }
 
 .bounceItem {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: var(--panel);
   box-shadow: var(--shadow-1);
   cursor: pointer;
@@ -719,7 +723,7 @@ input:hover {
 .bounceHead {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -731,26 +735,26 @@ input:hover {
 
 .bounceHead strong {
   color: var(--ink-strong);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .bounceHead span,
 .bounceItem p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
 .bounceEmail {
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
 }
 
 .bounceItem p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -760,26 +764,27 @@ input:hover {
   color: var(--muted);
   background: var(--panel-soft);
   font-size: 13px;
+  padding: 14px;
 }
 
 .toastRegion {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  right: 16px;
+  bottom: 16px;
   z-index: 80;
-  width: min(360px, calc(100vw - 36px));
+  width: min(340px, calc(100vw - 32px));
   display: grid;
-  gap: 10px;
+  gap: 8px;
   pointer-events: none;
 }
 
 .toastNotice {
   display: grid;
-  gap: 5px;
-  padding: 12px 14px;
+  gap: 4px;
+  padding: 10px 12px;
   border: 1px solid oklch(0.86 0.035 245 / 0.78);
-  border-left: 4px solid var(--blue);
-  border-radius: 8px;
+  border-left: 3px solid var(--blue);
+  border-radius: 6px;
   background: oklch(0.99 0.004 235 / 0.94);
   color: var(--ink);
   box-shadow: var(--shadow-2);
@@ -788,7 +793,6 @@ input:hover {
   transition: opacity 180ms ease, transform 180ms ease;
   pointer-events: auto;
   cursor: pointer;
-  backdrop-filter: blur(14px) saturate(1.18);
 }
 
 .toastNotice.visible {
@@ -805,13 +809,13 @@ input:hover {
 .toastNotice span {
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
 .modalOverlay {
-  width: min(780px, calc(100vw - 28px));
-  max-height: min(730px, calc(100vh - 36px));
+  width: min(720px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 36px));
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -830,7 +834,7 @@ input:hover {
 
 .modalPanel {
   width: 100%;
-  max-height: min(730px, calc(100vh - 36px));
+  max-height: min(680px, calc(100vh - 36px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
@@ -841,8 +845,8 @@ input:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px;
+  gap: 14px;
+  padding: 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -850,13 +854,13 @@ input:hover {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
 .modalActions .danger {
-  box-shadow: 0 6px 14px oklch(0.45 0.13 28 / 0.18);
+  box-shadow: 0 4px 10px oklch(0.45 0.13 28 / 0.16);
 }
 
 .modalActions .secondary {
@@ -873,17 +877,17 @@ input:hover {
 }
 
 .modalHeader p {
-  margin-top: 6px;
+  margin-top: 5px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .modalBody {
-  padding: 16px;
+  padding: 14px;
   overflow: auto;
   color: var(--ink);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   white-space: normal;
 }
@@ -897,23 +901,27 @@ input:hover {
   }
 }
 
-@media (max-width: 1180px) {
-  body {
-    grid-template-columns: 228px minmax(0, 1fr);
-  }
-
-  .summaryBand,
-  .modelGrid {
+@media (max-width: 1200px) {
+  .summaryBand {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .controls,
-  .twoColumn {
-    grid-template-columns: 1fr;
+  .controls {
+    grid-template-columns: 1fr 1fr;
   }
 
   .controls button {
-    width: 100%;
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 960px) {
+  body {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .twoColumn {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -925,8 +933,8 @@ input:hover {
   .topbar {
     position: static;
     min-height: auto;
-    padding: 16px;
-    gap: 16px;
+    padding: 14px;
+    gap: 12px;
   }
 
   .actions {
@@ -937,12 +945,15 @@ input:hover {
   }
 
   main {
-    padding: 18px 14px 30px;
+    padding: 16px 12px 28px;
   }
 
-  .summaryBand,
+  .summaryBand {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .modelGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .sectionHeader {
@@ -959,7 +970,11 @@ input:hover {
     width: 100%;
   }
 
-  .metricStrip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .controls button {
+    grid-column: auto;
   }
 }
