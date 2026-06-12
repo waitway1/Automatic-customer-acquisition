@@ -3664,7 +3664,8 @@ def poll_mail_once() -> dict[str, Any]:
                             subject=subject,
                             sender=from_addr,
                         )
-                        append_log(f"退信已记录，不自动重发: {model_key} {bounced}")
+                        mark_final_invalid_email(config, model_key, bounced, "bounce_monitor", bounce_reason_text(subject, text), "退信失效")
+                        append_log(f"退信已记录并计入失效: {model_key} {bounced}")
                         bounces += 1
                         break
             elif any(token.lower() in lower for token in config.get("interest_keywords", [])):
@@ -3737,7 +3738,8 @@ def process_mail_message(config: dict[str, Any], raw: bytes, source_sender_profi
                     subject=subject,
                     sender=from_addr,
                 )
-                append_log(f"退信已记录，不自动重发: {model_key} {bounced}")
+                mark_final_invalid_email(config, model_key, bounced, "bounce_process", bounce_reason_text(subject, text), "退信失效")
+                append_log(f"退信已记录并计入失效: {model_key} {bounced}")
                 return 1, 0
             existing_model = find_model_for_email(config, bounced)
             if existing_model and old_match is None:
