@@ -61,7 +61,7 @@
   ],
   "models": {
     "jetour_t2_g700": {
-      "label": "Jetour T2 / G700",
+      "label": "Jetour",
       "aliases": [
         "jetour t2",
         "g700",
@@ -121,7 +121,7 @@
       ]
     },
     "lc250": {
-      "label": "LC250 / Prado 250",
+      "label": "lc250",
       "aliases": [
         "lc250",
         "prado 250",
