@@ -360,7 +360,7 @@ input:hover {
 
 .modelGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 10px;
 }
 
@@ -390,7 +390,6 @@ input:hover {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
-  flex-wrap: wrap;
 }
 
 .cardTitle h3 {
@@ -399,12 +398,13 @@ input:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+  flex: 1;
 }
 
 .modelActions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: none;
 }
 
