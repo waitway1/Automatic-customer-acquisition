@@ -4,113 +4,107 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>客户运营台</title>
-    <link rel="stylesheet" href="/styles.css?v=2026061205">
+    <link rel="stylesheet" href="/styles.css?v=2026061206">
   </head>
   <body>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-icon">C</div>
-        <div>
+        <div class="brand-text">
           <h1>客户运营台</h1>
           <small id="clock">同步中</small>
         </div>
       </div>
-      <div class="sidebar-actions">
-        <button class="btn-sidebar primary" id="dailyBtn">每日获客</button>
-        <button class="btn-sidebar secondary" id="refreshBtn">刷新数据</button>
-      </div>
-      <div class="sidebar-footer">
-        <p>6 个车型 · 自动监控</p>
-      </div>
+      <nav class="sidebar-nav">
+        <button class="btn nav-btn primary" id="dailyBtn">每日获客</button>
+        <button class="btn nav-btn" id="refreshBtn">刷新数据</button>
+      </nav>
+      <div class="sidebar-info">6 个车型</div>
     </aside>
 
     <main class="content">
-      <div class="page-header">
+      <div class="page-top">
         <div>
           <h2>运营概览</h2>
           <p>客户数据、邮件状态、待跟进事项</p>
         </div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn secondary" id="syncSheetsBtn">更新表格</button>
-        </div>
+        <button class="btn ghost" id="syncSheetsBtn">更新表格</button>
       </div>
 
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-icon blue">👥</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-top">
+            <div class="stat-icon blue">👥</div>
+          </div>
           <div class="stat-label">客户总数</div>
           <div class="stat-value" id="totalCount">0</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon green">✓</div>
+        <div class="stat">
+          <div class="stat-top">
+            <div class="stat-icon green">✓</div>
+          </div>
           <div class="stat-label">已发客户</div>
           <div class="stat-value" id="sentCount">0</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon amber">⏳</div>
+        <div class="stat">
+          <div class="stat-top">
+            <div class="stat-icon amber">⏳</div>
+          </div>
           <div class="stat-label">未发客户</div>
           <div class="stat-value" id="unsentCount">0</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-icon red">✉</div>
+        <div class="stat">
+          <div class="stat-top">
+            <div class="stat-icon red">✉</div>
+          </div>
           <div class="stat-label">待跟进</div>
           <div class="stat-value" id="interventionCount">0</div>
         </div>
       </div>
 
-      <div class="controls-bar">
-        <div class="controls-row">
-          <div class="control-group">
-            <label>车型</label>
-            <select id="modelSelect"></select>
-          </div>
-          <div class="control-group" style="max-width:120px;">
-            <label>数量</label>
-            <input id="sendLimit" type="number" min="0" max="500" value="10">
-          </div>
-          <div class="control-group">
-            <label>发件邮箱</label>
-            <select id="senderSelect"></select>
-          </div>
-          <button class="btn primary" id="sendBtn">发送邮件</button>
-          <span id="taskState" class="badge idle">空闲</span>
+      <div class="send-bar">
+        <div class="field">
+          <label>车型</label>
+          <select id="modelSelect"></select>
         </div>
+        <div class="field" style="max-width:100px;">
+          <label>数量</label>
+          <input id="sendLimit" type="number" min="0" max="500" value="10">
+        </div>
+        <div class="field">
+          <label>发件邮箱</label>
+          <select id="senderSelect"></select>
+        </div>
+        <button class="btn primary" id="sendBtn">发送邮件</button>
+        <span id="taskState" class="badge idle">空闲</span>
       </div>
 
       <div class="section">
-        <div class="section-header">
-          <div>
-            <h3>车型概览</h3>
-          </div>
+        <div class="section-head">
+          <h3>车型概览</h3>
         </div>
         <div id="modelGrid" class="model-grid"></div>
       </div>
 
       <div class="section two-col">
         <div>
-          <div class="section-header">
-            <div>
-              <h3>邮箱监控</h3>
-            </div>
+          <div class="section-head">
+            <h3>邮箱监控</h3>
           </div>
           <div id="mailGrid"></div>
         </div>
         <div>
-          <div class="section-header">
-            <div>
-              <h3>人工跟进</h3>
-            </div>
-            <button class="btn danger" id="clearInterventionBtn" style="font-size:12px;height:32px;padding:0 12px;">一键清除</button>
+          <div class="section-head">
+            <h3>人工跟进</h3>
+            <button class="btn danger" id="clearInterventionBtn" style="font-size:11px;height:28px;padding:0 10px;">清除全部</button>
           </div>
           <div id="interventionList" class="follow-list"></div>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-header">
-          <div>
-            <h3>退信记录</h3>
-          </div>
+        <div class="section-head">
+          <h3>退信记录</h3>
         </div>
         <div id="bounceList" class="bounce-list"></div>
       </div>
@@ -118,23 +112,23 @@
 
     <dialog id="mailModal" class="modal-overlay">
       <div class="modal-panel">
-        <div class="modal-header">
+        <div class="modal-head">
           <div>
             <h2 id="modalSubject">邮件内容</h2>
             <p id="modalFrom"></p>
           </div>
           <div class="modal-actions">
-            <button class="btn secondary" id="markReadBtn">已读</button>
-            <button class="btn secondary" id="moveFollowupBtn">移入跟进</button>
+            <button class="btn ghost" id="markReadBtn">已读</button>
+            <button class="btn ghost" id="moveFollowupBtn">移入跟进</button>
             <button class="btn danger" id="moveInvalidBtn">移入失效</button>
-            <button class="btn secondary" id="removeBounceBtn">移出退信</button>
-            <button class="btn secondary" id="closeModalBtn" style="padding:0 10px;">✕</button>
+            <button class="btn ghost" id="removeBounceBtn">移出退信</button>
+            <button class="btn ghost" id="closeModalBtn" style="padding:0 8px;">✕</button>
           </div>
         </div>
         <div id="modalBody" class="modal-body"></div>
       </div>
     </dialog>
 
-    <script src="/app.js?v=2026061205"></script>
+    <script src="/app.js?v=2026061206"></script>
   </body>
 </html>
